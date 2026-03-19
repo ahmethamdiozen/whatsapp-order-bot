@@ -1,0 +1,70 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Location {
+  id        Int      @id @default(autoincrement())
+  name      String
+  address   String
+  phone     String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  menuItems MenuItem[]
+  orders    Order[]
+}
+
+model MenuItem {
+  id          Int      @id @default(autoincrement())
+  name        String
+  description String?
+  price       Float
+  category    String
+  isAvailable Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  location   Location @relation(fields: [locationId], references: [id])
+  locationId Int
+
+  orderItems OrderItem[]
+}
+
+model Order {
+  id         Int         @id @default(autoincrement())
+  customerPhone String
+  status     OrderStatus @default(PENDING)
+  totalPrice Float       @default(0)
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  location   Location @relation(fields: [locationId], references: [id])
+  locationId Int
+
+  items OrderItem[]
+}
+
+model OrderItem {
+  id       Int    @id @default(autoincrement())
+  quantity Int
+  notes    String?
+  price    Float
+
+  order      Order    @relation(fields: [orderId], references: [id])
+  orderId    Int
+
+  menuItem   MenuItem @relation(fields: [menuItemId], references: [id])
+  menuItemId Int
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PREPARING
+  READY
+  DELIVERED
+  CANCELLED
+}
