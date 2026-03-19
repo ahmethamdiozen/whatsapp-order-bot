@@ -4,7 +4,7 @@ export async function sendMessage(to: string, text: string): Promise<void> {
     const response = await fetch(url, {
         method: 'POST',
         headers: {
-            'Authorization': `Bearer ${process.env.WHATSAPP_TOKEN}`,
+            'Authorization': `Bearer ${process.env.WHATSAPP_TOKEN_PERM}`,
             'Content-Type': 'application/json',
         },
         body: JSON.stringify({
