@@ -2,7 +2,11 @@ import { prisma } from '../lib/prisma';
 import { OrderSession } from '../lib/session';
 
 export async function createOrder(phone: string, session: OrderSession) {
-  return prisma.order.create({
+    if (!session.locationId) {
+        throw new Error('Location ID is required to create an order');
+    }
+  
+    return prisma.order.create({
     data: {
       customerPhone: phone,
       locationId: session.locationId,

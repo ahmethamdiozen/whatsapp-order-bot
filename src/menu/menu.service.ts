@@ -20,7 +20,7 @@ export async function findMenuItemByName(name: string, locationId: number) {
   });
 }
 
-export async function getAllLocation() {
+export async function getAllLocations() {
     return prisma.location.findMany({
         where: { isActive: true },
         orderBy: { name: 'asc'},
