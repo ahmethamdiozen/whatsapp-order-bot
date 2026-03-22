@@ -9,7 +9,7 @@ export interface OrderSession {
     menuItemId: number;
   }[];
   total: number;
-  status: 'selecting_location' | 'browsing_menu' | 'awaiting_confirmation' | 'confirmed' | 'cancelled';
+  status: 'selecting_location' | 'browsing_menu' | 'awaiting_confirmation' | 'post_order' | 'confirmed' | 'cancelled';
 }
 
 export async function setSession(phone: string, session: OrderSession): Promise<void> {

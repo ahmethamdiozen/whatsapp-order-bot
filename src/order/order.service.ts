@@ -23,3 +23,17 @@ export async function createOrder(phone: string, session: OrderSession) {
     include: { items: true },
   });
 }
+
+export async function getOrdersByPhone(phone: string) {
+  return prisma.order.findMany({
+    where: { customerPhone: phone },
+    orderBy: { createdAt: 'desc' },
+    take: 5, // Son 5 sipariş
+    include: {
+      items: {
+        include: { menuItem: true },
+      },
+      location: true,
+    },
+  });
+}

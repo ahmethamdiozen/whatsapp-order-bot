@@ -1,9 +1,9 @@
 import { Router, Request, Response } from 'express';
 import { parseOrder } from '../bot/ai';
-import { sendMessage, sendInteractiveList, sendQuickActions } from '../bot/messenger';
+import { sendMessage, sendInteractiveList, sendQuickActions, sendPostOrderActions } from '../bot/messenger';
 import { findMenuItemById, getMenuGroupedByCategory, getAllLocations } from '../menu/menu.service';
 import { getSession, setSession, clearSession, OrderSession } from '../lib/session';
-import { createOrder } from '../order/order.service';
+import { createOrder, getOrdersByPhone } from '../order/order.service';
 
 export const webhookRouter = Router();
 
@@ -60,6 +60,16 @@ async function getCartMessage(session: OrderSession): Promise<string> {
   return `🛒 *Your Cart:*\n\n${itemList}\n\n*Total: $${session.total.toFixed(2)}*\n\nType *REMOVE [item]* to remove an item.`;
 }
 
+async function startLocationSelection(from: string) {
+  const locations = await getAllLocations();
+  const locationList = locations
+    .map((l, i) => `${i + 1}. ${l.name} — ${l.address}`)
+    .join('\n');
+
+  await setSession(from, { status: 'selecting_location', items: [], total: 0 });
+  await sendMessage(from, `Please select a branch by entering its number:\n\n${locationList}`);
+}
+
 webhookRouter.post('/', async (req: Request, res: Response) => {
   const body = req.body;
 
@@ -77,11 +87,10 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
         const buttonId = message.interactive?.button_reply?.id as string;
         const selectedId = message.interactive?.list_reply?.id as string;
 
-        // Handle quick action button replies
+        // Handle button replies
         if (buttonId) {
-          if (buttonId === 'action_cart') {
-            await sendMessage(from, await getCartMessage(session!));
-          } else if (buttonId === 'action_checkout') {
+          // Quick action buttons (browsing menu)
+          if (buttonId === 'action_checkout') {
             if (!session?.items.length) {
               await sendMessage(from, '🛒 Your cart is empty. Please select items first.');
               await showMenu(from, session!.locationId!, session!);
@@ -102,6 +111,27 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
             await showMenu(from, session!.locationId!, clearedSession);
           } else if (buttonId === 'action_menu') {
             await showMenu(from, session!.locationId!, session!);
+
+          // Post-order buttons
+          } else if (buttonId === 'post_new_order') {
+            await startLocationSelection(from);
+          } else if (buttonId === 'post_my_orders') {
+            const orders = await getOrdersByPhone(from);
+
+            if (orders.length === 0) {
+              await sendMessage(from, '📦 You have no previous orders.');
+            } else {
+              const orderList = orders.map(order => {
+                const itemList = order.items
+                  .map(i => `  • ${i.quantity}x ${i.menuItem.name}`)
+                  .join('\n');
+                return `*Order #${order.id}* — ${order.status}\n${itemList}\nTotal: $${order.totalPrice.toFixed(2)}\n📍 ${order.location.name}`;
+              }).join('\n\n');
+
+              await sendMessage(from, `📦 *Your Recent Orders:*\n\n${orderList}`);
+            }
+
+            await sendPostOrderActions(from);
           }
 
           return res.sendStatus(200);
@@ -188,11 +218,12 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
       if (session?.status === 'awaiting_confirmation') {
         if (upper === 'YES') {
           const order = await createOrder(from, session);
-          await clearSession(from);
+          await setSession(from, { status: 'post_order', items: [], total: 0 });
           await sendMessage(
             from,
             `🎉 Your order has been confirmed!\n\nOrder #${order.id}\nTotal: $${order.totalPrice.toFixed(2)}\n\nYour order is being prepared. Thank you!`
           );
+          await sendPostOrderActions(from);
         } else if (upper === 'NO' || upper === 'BACK') {
           await setSession(from, { ...session, status: 'browsing_menu' });
           await sendMessage(from, '↩️ No problem! Going back to your cart.');
@@ -201,6 +232,12 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
           await sendMessage(from, 'Please type *YES* to confirm or *BACK* to return to menu.');
         }
 
+        return res.sendStatus(200);
+      }
+
+      // Handle post-order state (text fallback if buttons not tapped)
+      if (session?.status === 'post_order') {
+        await sendPostOrderActions(from);
         return res.sendStatus(200);
       }
 
@@ -272,7 +309,7 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
           return res.sendStatus(200);
         }
 
-        // Fallback — try AI parsing for natural language
+        // Fallback — AI parsing for natural language
         const parsed = await parseOrder(text);
         if (parsed.intent === 'cancel') {
           await clearSession(from);
@@ -285,22 +322,9 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
         return res.sendStatus(200);
       }
 
-      // New conversation — ask user to select a location
-      const locations = await getAllLocations();
-      const locationList = locations
-        .map((l, i) => `${i + 1}. ${l.name} — ${l.address}`)
-        .join('\n');
-
-      await setSession(from, {
-        status: 'selecting_location',
-        items: [],
-        total: 0,
-      });
-
-      await sendMessage(
-        from,
-        `👋 Welcome! Please select a branch by entering its number:\n\n${locationList}`
-      );
+      // New conversation — welcome message
+      await sendMessage(from, '👋 Welcome! Let\'s get your order started.');
+      await startLocationSelection(from);
     }
   }
 

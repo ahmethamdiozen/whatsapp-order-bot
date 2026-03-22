@@ -62,15 +62,7 @@ export async function sendInteractiveList(
 export async function sendQuickActions(to: string, hasItems: boolean): Promise<void> {
   const url = `https://graph.facebook.com/v19.0/${process.env.PHONE_NUMBER_ID}/messages`;
 
-  const buttons = hasItems
-    ? [
-        { type: 'reply', reply: { id: 'action_cart', title: '🛒 Cart' } },
-        { type: 'reply', reply: { id: 'action_checkout', title: '✅ Checkout' } },
-        { type: 'reply', reply: { id: 'action_clear', title: '🗑️ Clear Cart' } },
-      ]
-    : [
-        { type: 'reply', reply: { id: 'action_menu', title: '📋 Show Menu' } },
-      ];
+  if (!hasItems) return; // Sepet boşken buton gönderme
 
   const response = await fetch(url, {
     method: 'POST',
@@ -84,8 +76,14 @@ export async function sendQuickActions(to: string, hasItems: boolean): Promise<v
       type: 'interactive',
       interactive: {
         type: 'button',
-        body: { text: hasItems ? 'What would you like to do?' : 'Browse our menu to get started.' },
-        action: { buttons },
+        body: { text: 'What would you like to do?' },
+        action: {
+          buttons: [
+            { type: 'reply', reply: { id: 'action_checkout', title: '✅ Checkout' } },
+            { type: 'reply', reply: { id: 'action_clear', title: '🗑️ Clear Cart' } },
+            { type: 'reply', reply: { id: 'action_menu', title: '📋 Menu' } },
+          ],
+        },
       },
     }),
   });
@@ -93,5 +91,37 @@ export async function sendQuickActions(to: string, hasItems: boolean): Promise<v
   if (!response.ok) {
     const error = await response.json();
     console.error('WhatsApp button error:', error);
+  }
+}
+
+export async function sendPostOrderActions(to: string): Promise<void> {
+  const url = `https://graph.facebook.com/v19.0/${process.env.PHONE_NUMBER_ID}/messages`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.WHATSAPP_TOKEN}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      messaging_product: 'whatsapp',
+      to,
+      type: 'interactive',
+      interactive: {
+        type: 'button',
+        body: { text: 'What would you like to do next?' },
+        action: {
+          buttons: [
+            { type: 'reply', reply: { id: 'post_new_order', title: '🍔 New Order' } },
+            { type: 'reply', reply: { id: 'post_my_orders', title: '📦 My Orders' } },
+          ],
+        },
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    console.error('WhatsApp post order error:', error);
   }
 }
