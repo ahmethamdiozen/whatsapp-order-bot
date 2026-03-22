@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { parseOrder } from '../bot/ai';
-import { sendMessage } from '../bot/messenger';
-import { findMenuItemByName, getAllLocations } from '../menu/menu.service';
+import { sendMessage, sendInteractiveList } from '../bot/messenger';
+import { findMenuItemById, getMenuGroupedByCategory, getAllLocations } from '../menu/menu.service';
 import { getSession, setSession, clearSession, OrderSession } from '../lib/session';
 import { createOrder } from '../order/order.service';
 
@@ -20,6 +20,30 @@ webhookRouter.get('/', (req: Request, res: Response) => {
   }
 });
 
+async function showMenu(to: string, locationId: number, session: OrderSession) {
+  const grouped = await getMenuGroupedByCategory(locationId);
+
+  const sections = Object.entries(grouped).map(([category, items]) => ({
+    title: category,
+    rows: items.map(item => ({
+      id: `item_${item.id}`,
+      title: item.name,
+      description: `$${item.price.toFixed(2)}${item.description ? ' — ' + item.description : ''}`,
+    })),
+  }));
+
+  const cartSummary = session.items.length > 0
+    ? `\n\n🛒 Cart: ${session.items.map(i => `${i.quantity}x ${i.name}`).join(', ')}\nTotal: $${session.total.toFixed(2)}`
+    : '';
+
+  await sendInteractiveList(
+    to,
+    `Here's our menu! Select an item to add to your cart.${cartSummary}`,
+    'View Menu',
+    sections,
+  );
+}
+
 webhookRouter.post('/', async (req: Request, res: Response) => {
   const body = req.body;
 
@@ -30,10 +54,61 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
 
     if (message) {
       const from = message.from;
+      const session = await getSession(from);
+
+      // Handle interactive list reply (menu item selection)
+      if (message.type === 'interactive') {
+        const selectedId = message.interactive?.list_reply?.id as string;
+        const selectedTitle = message.interactive?.list_reply?.title as string;
+
+        if (selectedId?.startsWith('item_') && session?.locationId) {
+          const menuItemId = parseInt(selectedId.replace('item_', ''));
+          const menuItem = await findMenuItemById(menuItemId);
+
+          if (!menuItem) {
+            await sendMessage(from, '❌ Item not found. Please try again.');
+            return res.sendStatus(200);
+          }
+
+          // Add item to cart
+          const existingItem = session.items.find(i => i.menuItemId === menuItemId);
+          let updatedItems = [...session.items];
+
+          if (existingItem) {
+            updatedItems = updatedItems.map(i =>
+              i.menuItemId === menuItemId
+                ? { ...i, quantity: i.quantity + 1 }
+                : i
+            );
+          } else {
+            updatedItems.push({
+              name: menuItem.name,
+              quantity: 1,
+              price: menuItem.price,
+              menuItemId: menuItem.id,
+            });
+          }
+
+          const newTotal = updatedItems.reduce((sum, i) => sum + i.price * i.quantity, 0);
+
+          const updatedSession: OrderSession = {
+            ...session,
+            items: updatedItems,
+            total: newTotal,
+            status: 'browsing_menu',
+          };
+
+          await setSession(from, updatedSession);
+
+          // Show updated menu with cart
+          await showMenu(from, session.locationId, updatedSession);
+        }
+
+        return res.sendStatus(200);
+      }
+
       const text = message.text?.body?.trim();
       console.log(`Message received - From: ${from}, Text: ${text}`);
-
-      const session = await getSession(from);
 
       // Handle location selection
       if (session?.status === 'selecting_location') {
@@ -49,24 +124,69 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
         }
 
         const selectedLocation = locations[selectedIndex];
-        await setSession(from, {
-          ...session,
+        const newSession: OrderSession = {
           locationId: selectedLocation.id,
-          status: 'awaiting_confirmation',
           items: [],
           total: 0,
-        });
+          status: 'browsing_menu',
+        };
 
-        await sendMessage(
-          from,
-          `📍 Selected: *${selectedLocation.name}*\n\nWhat would you like to order?\nExample: "2 burgers and 1 coke"`
-        );
+        await setSession(from, newSession);
+        await sendMessage(from, `📍 *${selectedLocation.name}* selected!`);
+        await showMenu(from, selectedLocation.id, newSession);
+        return res.sendStatus(200);
+      }
+
+      // Handle checkout / confirmation commands while browsing menu
+      if (session?.status === 'browsing_menu') {
+        const upper = text.toUpperCase();
+
+        if (upper === 'CHECKOUT' || upper === 'ORDER') {
+          if (session.items.length === 0) {
+            await sendMessage(from, '🛒 Your cart is empty. Please select items from the menu first.');
+            await showMenu(from, session.locationId!, session);
+            return res.sendStatus(200);
+          }
+
+          await setSession(from, { ...session, status: 'awaiting_confirmation' });
+
+          const itemList = session.items
+            .map(i => `${i.quantity}x ${i.name} — $${(i.price * i.quantity).toFixed(2)}`)
+            .join('\n');
+
+          await sendMessage(
+            from,
+            `✅ Your order summary:\n\n${itemList}\n\nTotal: $${session.total.toFixed(2)}\n\nType *YES* to confirm or *NO* to cancel.`
+          );
+          return res.sendStatus(200);
+        }
+
+        if (upper === 'CLEAR' || upper === 'RESET') {
+          await setSession(from, { ...session, items: [], total: 0 });
+          await sendMessage(from, '🗑️ Cart cleared.');
+          await showMenu(from, session.locationId!, { ...session, items: [], total: 0 });
+          return res.sendStatus(200);
+        }
+
+        if (upper === 'MENU') {
+          await showMenu(from, session.locationId!, session);
+          return res.sendStatus(200);
+        }
+
+        // If user types freely, try AI parsing
+        const parsed = await parseOrder(text);
+        if (parsed.intent === 'order') {
+          await sendMessage(from, 'Please select items directly from the menu, or type *CHECKOUT* when ready.');
+          await showMenu(from, session.locationId!, session);
+        } else {
+          await sendMessage(from, 'Type *CHECKOUT* to place your order, *CLEAR* to empty your cart, or *MENU* to see the menu again.');
+        }
 
         return res.sendStatus(200);
       }
 
       // Handle order confirmation
-      if (session?.status === 'awaiting_confirmation' && session.items.length > 0) {
+      if (session?.status === 'awaiting_confirmation') {
         if (text.toUpperCase() === 'YES') {
           const order = await createOrder(from, session);
           await clearSession(from);
@@ -79,58 +199,6 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
           await sendMessage(from, '❌ Order cancelled. Feel free to place a new order anytime.');
         } else {
           await sendMessage(from, 'Please type *YES* to confirm or *NO* to cancel your order.');
-        }
-
-        return res.sendStatus(200);
-      }
-
-      // Handle order input when location is already selected
-      if (session?.status === 'awaiting_confirmation' && session.locationId && session.items.length === 0) {
-        const parsed = await parseOrder(text);
-        console.log('AI parsed:', JSON.stringify(parsed, null, 2));
-
-        if (parsed.intent === 'order' && parsed.items.length > 0) {
-          const resolvedItems = await Promise.all(
-            parsed.items.map(async (item) => {
-              const menuItem = await findMenuItemByName(item.name, session.locationId!);
-              return { ...item, menuItem };
-            })
-          );
-
-          const notFound = resolvedItems.filter(i => !i.menuItem);
-          const found = resolvedItems.filter(i => i.menuItem);
-
-          if (notFound.length > 0) {
-            const names = notFound.map(i => i.name).join(', ');
-            await sendMessage(from, `❌ The following items are not available: ${names}`);
-            return res.sendStatus(200);
-          }
-
-          const total = found.reduce((sum, i) => {
-            return sum + (i.menuItem!.price * i.quantity);
-          }, 0);
-
-          await setSession(from, {
-            ...session,
-            items: found.map(i => ({
-              name: i.menuItem!.name,
-              quantity: i.quantity,
-              price: i.menuItem!.price,
-              menuItemId: i.menuItem!.id,
-            })),
-            total,
-          });
-
-          const itemList = found
-            .map(i => `${i.quantity}x ${i.menuItem!.name} — $${(i.menuItem!.price * i.quantity).toFixed(2)}`)
-            .join('\n');
-
-          await sendMessage(
-            from,
-            `✅ Your order summary:\n\n${itemList}\n\nTotal: $${total.toFixed(2)}\n\nType *YES* to confirm or *NO* to cancel.`
-          );
-        } else {
-          await sendMessage(from, 'Please tell us what you would like to order.\nExample: "2 burgers and 1 coke"');
         }
 
         return res.sendStatus(200);
