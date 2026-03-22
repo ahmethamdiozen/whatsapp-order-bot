@@ -125,7 +125,9 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
                 const itemList = order.items
                   .map(i => `  • ${i.quantity}x ${i.menuItem.name}`)
                   .join('\n');
-                return `*Order #${order.id}* — ${order.status}\n${itemList}\nTotal: $${order.totalPrice.toFixed(2)}\n📍 ${order.location.name}`;
+                const date = new Date(order.createdAt);
+                const formatted = date.toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
+                return `*Order #${order.id}* — ${order.status}\n🕐 ${formatted}\n${itemList}\nTotal: $${order.totalPrice.toFixed(2)}\n📍 ${order.location.name}`;
               }).join('\n\n');
 
               await sendMessage(from, `📦 *Your Recent Orders:*\n\n${orderList}`);
