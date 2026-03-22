@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { parseOrder } from '../bot/ai';
-import { sendMessage, sendInteractiveList } from '../bot/messenger';
+import { sendMessage, sendInteractiveList, sendQuickActions } from '../bot/messenger';
 import { findMenuItemById, getMenuGroupedByCategory, getAllLocations } from '../menu/menu.service';
 import { getSession, setSession, clearSession, OrderSession } from '../lib/session';
 import { createOrder } from '../order/order.service';
@@ -33,15 +33,31 @@ async function showMenu(to: string, locationId: number, session: OrderSession) {
   }));
 
   const cartSummary = session.items.length > 0
-    ? `\n\n🛒 Cart: ${session.items.map(i => `${i.quantity}x ${i.name}`).join(', ')}\nTotal: $${session.total.toFixed(2)}`
-    : '';
+    ? `\n\n🛒 *Cart:*\n${session.items.map(i => `• ${i.quantity}x ${i.name} — $${(i.price * i.quantity).toFixed(2)}`).join('\n')}\n*Total: $${session.total.toFixed(2)}*`
+    : '\n\n🛒 Your cart is empty.';
+
+  const hint = session.items.length > 0
+    ? '\n\nUse the buttons below or type *REMOVE [item]* to remove an item.'
+    : '\n\nSelect items from the menu to add them to your cart.';
 
   await sendInteractiveList(
     to,
-    `Here's our menu! Select an item to add to your cart.${cartSummary}`,
+    `Here\'s our menu! Tap an item to add it to your cart. Select it again to add one more.${cartSummary}${hint}`,
     'View Menu',
     sections,
   );
+
+  await sendQuickActions(to, session.items.length > 0);
+}
+
+async function getCartMessage(session: OrderSession): Promise<string> {
+  if (session.items.length === 0) return '🛒 Your cart is empty.';
+
+  const itemList = session.items
+    .map(i => `• ${i.quantity}x ${i.name} — $${(i.price * i.quantity).toFixed(2)}`)
+    .join('\n');
+
+  return `🛒 *Your Cart:*\n\n${itemList}\n\n*Total: $${session.total.toFixed(2)}*\n\nType *REMOVE [item]* to remove an item.`;
 }
 
 webhookRouter.post('/', async (req: Request, res: Response) => {
@@ -56,11 +72,42 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
       const from = message.from;
       const session = await getSession(from);
 
-      // Handle interactive list reply (menu item selection)
+      // Handle interactive messages (button replies and list replies)
       if (message.type === 'interactive') {
+        const buttonId = message.interactive?.button_reply?.id as string;
         const selectedId = message.interactive?.list_reply?.id as string;
-        const selectedTitle = message.interactive?.list_reply?.title as string;
 
+        // Handle quick action button replies
+        if (buttonId) {
+          if (buttonId === 'action_cart') {
+            await sendMessage(from, await getCartMessage(session!));
+          } else if (buttonId === 'action_checkout') {
+            if (!session?.items.length) {
+              await sendMessage(from, '🛒 Your cart is empty. Please select items first.');
+              await showMenu(from, session!.locationId!, session!);
+            } else {
+              await setSession(from, { ...session!, status: 'awaiting_confirmation' });
+              const itemList = session!.items
+                .map(i => `• ${i.quantity}x ${i.name} — $${(i.price * i.quantity).toFixed(2)}`)
+                .join('\n');
+              await sendMessage(
+                from,
+                `✅ *Order Summary:*\n\n${itemList}\n\n*Total: $${session!.total.toFixed(2)}*\n\nType *YES* to confirm or *BACK* to return to menu.`
+              );
+            }
+          } else if (buttonId === 'action_clear') {
+            const clearedSession = { ...session!, items: [], total: 0 };
+            await setSession(from, clearedSession);
+            await sendMessage(from, '🗑️ Cart cleared!');
+            await showMenu(from, session!.locationId!, clearedSession);
+          } else if (buttonId === 'action_menu') {
+            await showMenu(from, session!.locationId!, session!);
+          }
+
+          return res.sendStatus(200);
+        }
+
+        // Handle menu item selection from list
         if (selectedId?.startsWith('item_') && session?.locationId) {
           const menuItemId = parseInt(selectedId.replace('item_', ''));
           const menuItem = await findMenuItemById(menuItemId);
@@ -70,7 +117,6 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
             return res.sendStatus(200);
           }
 
-          // Add item to cart
           const existingItem = session.items.find(i => i.menuItemId === menuItemId);
           let updatedItems = [...session.items];
 
@@ -90,7 +136,6 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
           }
 
           const newTotal = updatedItems.reduce((sum, i) => sum + i.price * i.quantity, 0);
-
           const updatedSession: OrderSession = {
             ...session,
             items: updatedItems,
@@ -100,14 +145,16 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
 
           await setSession(from, updatedSession);
 
-          // Show updated menu with cart
+          const qty = updatedItems.find(i => i.menuItemId === menuItemId)!.quantity;
+          await sendMessage(from, `✅ *${menuItem.name}* added! (${qty}x in cart)`);
           await showMenu(from, session.locationId, updatedSession);
         }
 
         return res.sendStatus(200);
       }
 
-      const text = message.text?.body?.trim();
+      const text = message.text?.body?.trim() ?? '';
+      const upper = text.toUpperCase();
       console.log(`Message received - From: ${from}, Text: ${text}`);
 
       // Handle location selection
@@ -137,9 +184,73 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
         return res.sendStatus(200);
       }
 
-      // Handle checkout / confirmation commands while browsing menu
+      // Handle order confirmation
+      if (session?.status === 'awaiting_confirmation') {
+        if (upper === 'YES') {
+          const order = await createOrder(from, session);
+          await clearSession(from);
+          await sendMessage(
+            from,
+            `🎉 Your order has been confirmed!\n\nOrder #${order.id}\nTotal: $${order.totalPrice.toFixed(2)}\n\nYour order is being prepared. Thank you!`
+          );
+        } else if (upper === 'NO' || upper === 'BACK') {
+          await setSession(from, { ...session, status: 'browsing_menu' });
+          await sendMessage(from, '↩️ No problem! Going back to your cart.');
+          await showMenu(from, session.locationId!, { ...session, status: 'browsing_menu' });
+        } else {
+          await sendMessage(from, 'Please type *YES* to confirm or *BACK* to return to menu.');
+        }
+
+        return res.sendStatus(200);
+      }
+
+      // Handle commands while browsing menu
       if (session?.status === 'browsing_menu') {
-        const upper = text.toUpperCase();
+        if (upper === 'CART') {
+          await sendMessage(from, await getCartMessage(session));
+          return res.sendStatus(200);
+        }
+
+        if (upper === 'MENU') {
+          await showMenu(from, session.locationId!, session);
+          return res.sendStatus(200);
+        }
+
+        if (upper === 'CLEAR' || upper === 'RESET') {
+          const clearedSession = { ...session, items: [], total: 0 };
+          await setSession(from, clearedSession);
+          await sendMessage(from, '🗑️ Cart cleared!');
+          await showMenu(from, session.locationId!, clearedSession);
+          return res.sendStatus(200);
+        }
+
+        if (upper.startsWith('REMOVE ')) {
+          const itemName = text.slice(7).trim();
+          const existingItem = session.items.find(i =>
+            i.name.toLowerCase().includes(itemName.toLowerCase())
+          );
+
+          if (!existingItem) {
+            await sendMessage(from, `❌ *${itemName}* not found in your cart.`);
+            await sendMessage(from, await getCartMessage(session));
+            return res.sendStatus(200);
+          }
+
+          const updatedItems = session.items
+            .map(i => i.menuItemId === existingItem.menuItemId
+              ? { ...i, quantity: i.quantity - 1 }
+              : i
+            )
+            .filter(i => i.quantity > 0);
+
+          const newTotal = updatedItems.reduce((sum, i) => sum + i.price * i.quantity, 0);
+          const updatedSession = { ...session, items: updatedItems, total: newTotal };
+          await setSession(from, updatedSession);
+
+          await sendMessage(from, `🗑️ Removed one *${existingItem.name}* from cart.`);
+          await showMenu(from, session.locationId!, updatedSession);
+          return res.sendStatus(200);
+        }
 
         if (upper === 'CHECKOUT' || upper === 'ORDER') {
           if (session.items.length === 0) {
@@ -151,56 +262,26 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
           await setSession(from, { ...session, status: 'awaiting_confirmation' });
 
           const itemList = session.items
-            .map(i => `${i.quantity}x ${i.name} — $${(i.price * i.quantity).toFixed(2)}`)
+            .map(i => `• ${i.quantity}x ${i.name} — $${(i.price * i.quantity).toFixed(2)}`)
             .join('\n');
 
           await sendMessage(
             from,
-            `✅ Your order summary:\n\n${itemList}\n\nTotal: $${session.total.toFixed(2)}\n\nType *YES* to confirm or *NO* to cancel.`
+            `✅ *Order Summary:*\n\n${itemList}\n\n*Total: $${session.total.toFixed(2)}*\n\nType *YES* to confirm or *BACK* to return to menu.`
           );
           return res.sendStatus(200);
         }
 
-        if (upper === 'CLEAR' || upper === 'RESET') {
-          await setSession(from, { ...session, items: [], total: 0 });
-          await sendMessage(from, '🗑️ Cart cleared.');
-          await showMenu(from, session.locationId!, { ...session, items: [], total: 0 });
-          return res.sendStatus(200);
-        }
-
-        if (upper === 'MENU') {
-          await showMenu(from, session.locationId!, session);
-          return res.sendStatus(200);
-        }
-
-        // If user types freely, try AI parsing
+        // Fallback — try AI parsing for natural language
         const parsed = await parseOrder(text);
-        if (parsed.intent === 'order') {
-          await sendMessage(from, 'Please select items directly from the menu, or type *CHECKOUT* when ready.');
-          await showMenu(from, session.locationId!, session);
-        } else {
-          await sendMessage(from, 'Type *CHECKOUT* to place your order, *CLEAR* to empty your cart, or *MENU* to see the menu again.');
+        if (parsed.intent === 'cancel') {
+          await clearSession(from);
+          await sendMessage(from, '❌ Order cancelled. Send any message to start again.');
+          return res.sendStatus(200);
         }
 
-        return res.sendStatus(200);
-      }
-
-      // Handle order confirmation
-      if (session?.status === 'awaiting_confirmation') {
-        if (text.toUpperCase() === 'YES') {
-          const order = await createOrder(from, session);
-          await clearSession(from);
-          await sendMessage(
-            from,
-            `🎉 Your order has been confirmed!\n\nOrder #${order.id}\nTotal: $${order.totalPrice.toFixed(2)}\n\nYour order is being prepared. Thank you!`
-          );
-        } else if (text.toUpperCase() === 'NO') {
-          await clearSession(from);
-          await sendMessage(from, '❌ Order cancelled. Feel free to place a new order anytime.');
-        } else {
-          await sendMessage(from, 'Please type *YES* to confirm or *NO* to cancel your order.');
-        }
-
+        await sendMessage(from, 'Use the buttons below or type *REMOVE [item]* to remove an item from your cart.');
+        await showMenu(from, session.locationId!, session);
         return res.sendStatus(200);
       }
 
