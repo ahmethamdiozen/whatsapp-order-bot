@@ -34,12 +34,13 @@ model MenuItem {
 }
 
 model Order {
-  id         Int         @id @default(autoincrement())
+  id            Int           @id @default(autoincrement())
   customerPhone String
-  status     OrderStatus @default(PENDING)
-  totalPrice Float       @default(0)
-  createdAt  DateTime    @default(now())
-  updatedAt  DateTime    @updatedAt
+  status        OrderStatus   @default(PENDING)
+  paymentStatus PaymentStatus @default(UNPAID)
+  totalPrice    Float         @default(0)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
 
   location   Location @relation(fields: [locationId], references: [id])
   locationId Int
@@ -67,4 +68,10 @@ enum OrderStatus {
   READY
   DELIVERED
   CANCELLED
+}
+
+enum PaymentStatus {
+  UNPAID
+  PAID
+  FAILED
 }
