@@ -4,6 +4,7 @@ import { sendMessage, sendInteractiveList, sendQuickActions, sendPostOrderAction
 import { findMenuItemById, getMenuGroupedByCategory, getAllLocations } from '../menu/menu.service';
 import { getSession, setSession, clearSession, OrderSession } from '../lib/session';
 import { createOrder, getOrdersByPhone } from '../order/order.service';
+import { createPaymentLink } from '../payment/payment.service';
 
 export const webhookRouter = Router();
 
@@ -225,6 +226,8 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
             from,
             `🎉 Your order has been confirmed!\n\nOrder #${order.id}\nTotal: $${order.totalPrice.toFixed(2)}\n\nYour order is being prepared. Thank you!`
           );
+          const paymentUrl = await createPaymentLink(order.id, order.totalPrice);
+          await sendMessage(from, `💳 Please complete your payment:\n${paymentUrl}`);
           await sendPostOrderActions(from);
         } else if (upper === 'NO' || upper === 'BACK') {
           await setSession(from, { ...session, status: 'browsing_menu' });
