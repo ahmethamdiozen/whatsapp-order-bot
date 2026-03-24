@@ -26,7 +26,7 @@ function authMiddleware(req: Request, res: Response, next: NextFunction) {
 adminRouter.use(authMiddleware);
 
 adminRouter.patch('/orders/:id/status', async (req: Request, res: Response) => {
-  const orderId = parseInt(req.params.id);
+  const orderId = parseInt(req.params.id as string);
   const { status } = req.body as { status: OrderStatus };
 
   if (!VALID_STATUSES.includes(status)) {
