@@ -24,6 +24,13 @@ export async function createOrder(phone: string, session: OrderSession) {
   });
 }
 
+export async function updateOrderStatus(orderId: number, status: 'PENDING' | 'CONFIRMED' | 'PREPARING' | 'READY' | 'DELIVERED' | 'CANCELLED') {
+  return prisma.order.update({
+    where: { id: orderId },
+    data: { status },
+  });
+}
+
 export async function updatePaymentStatus(orderId: number, paymentStatus: 'PAID' | 'FAILED') {
   return prisma.order.update({
     where: { id: orderId },
