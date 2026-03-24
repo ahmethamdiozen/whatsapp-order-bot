@@ -201,7 +201,7 @@ export default function Dashboard() {
             </thead>
             <tbody className="divide-y divide-gray-50">
               {stats.popularItems.map((item, idx) => (
-                <tr key={item.name} className="hover:bg-gray-50">
+                <tr key={idx} className="hover:bg-gray-50">
                   <td className="px-6 py-3 text-gray-500">#{idx + 1}</td>
                   <td className="px-6 py-3 font-medium text-gray-900">{item.name}</td>
                   <td className="px-6 py-3 text-right text-gray-700">
