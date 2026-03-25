@@ -39,13 +39,28 @@ model Order {
   status        OrderStatus   @default(PENDING)
   paymentStatus PaymentStatus @default(UNPAID)
   totalPrice    Float         @default(0)
+  discountAmount Float        @default(0)
+  promoCode     String?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
-  location   Location @relation(fields: [locationId], references: [id])
+  location   Location   @relation(fields: [locationId], references: [id])
   locationId Int
+  promo      PromoCode? @relation(fields: [promoCode], references: [code])
 
   items OrderItem[]
+}
+
+model PromoCode {
+  code           String    @id
+  discountPercent Int
+  expiresAt      DateTime?
+  usageLimit     Int?
+  usedCount      Int       @default(0)
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+
+  orders Order[]
 }
 
 model OrderItem {

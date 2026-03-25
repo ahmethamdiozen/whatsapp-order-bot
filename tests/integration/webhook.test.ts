@@ -4,6 +4,7 @@ jest.mock('../../src/order/order.service');
 jest.mock('../../src/bot/messenger');
 jest.mock('../../src/bot/ai');
 jest.mock('../../src/payment/payment.service');
+jest.mock('../../src/promo/promo.service');
 jest.mock('../../src/lib/prisma', () => ({ prisma: {} }));
 jest.mock('../../src/lib/redis', () => ({ redis: {} }));
 jest.mock('stripe', () => jest.fn().mockImplementation(() => ({})));
@@ -17,6 +18,7 @@ import { createOrder, getOrdersByPhone } from '../../src/order/order.service';
 import { sendMessage, sendInteractiveList, sendQuickActions, sendPostOrderActions } from '../../src/bot/messenger';
 import { parseOrder } from '../../src/bot/ai';
 import { createPaymentLink } from '../../src/payment/payment.service';
+import { validatePromoCode, incrementPromoUsage } from '../../src/promo/promo.service';
 
 const mockGetSession = getSession as jest.Mock;
 const mockSetSession = setSession as jest.Mock;
@@ -32,6 +34,8 @@ const mockSendQuickActions = sendQuickActions as jest.Mock;
 const mockSendPostOrderActions = sendPostOrderActions as jest.Mock;
 const mockParseOrder = parseOrder as jest.Mock;
 const mockCreatePaymentLink = createPaymentLink as jest.Mock;
+const mockValidatePromoCode = validatePromoCode as jest.Mock;
+const mockIncrementPromoUsage = incrementPromoUsage as jest.Mock;
 
 const FROM = '+905001234567';
 
@@ -76,6 +80,8 @@ beforeEach(() => {
   mockGetAllLocations.mockResolvedValue(mockLocations);
   mockGetMenuGroupedByCategory.mockResolvedValue(mockGroupedMenu);
   mockCreatePaymentLink.mockResolvedValue('https://checkout.stripe.com/pay/test');
+  mockValidatePromoCode.mockResolvedValue({ valid: false, error: 'Invalid promo code.' });
+  mockIncrementPromoUsage.mockResolvedValue(undefined);
 });
 
 // ─── Webhook Verification ────────────────────────────────────────────────────
@@ -388,13 +394,54 @@ describe('POST /webhook — awaiting_confirmation', () => {
     expect(mockSetSession).toHaveBeenCalledWith(FROM, expect.objectContaining({ status: 'browsing_menu' }));
   });
 
-  it('other text prompts for YES or BACK', async () => {
+  it('other text prompts for YES, BACK or PROMO', async () => {
     mockGetSession.mockResolvedValue(confirmingSession);
 
     await request(app).post('/webhook').send(textMessage('maybe'));
 
     expect(mockSendMessage).toHaveBeenCalledWith(FROM, expect.stringContaining('YES'));
     expect(mockCreateOrder).not.toHaveBeenCalled();
+  });
+
+  it('valid PROMO code applies discount', async () => {
+    mockGetSession.mockResolvedValue(confirmingSession);
+    mockValidatePromoCode.mockResolvedValue({ valid: true, discountPercent: 10 });
+
+    await request(app).post('/webhook').send(textMessage('PROMO SAVE10'));
+
+    expect(mockValidatePromoCode).toHaveBeenCalledWith('SAVE10');
+    expect(mockSetSession).toHaveBeenCalledWith(FROM, expect.objectContaining({
+      promoCode: 'SAVE10',
+      discountAmount: 1.00,
+      total: expect.closeTo(8.99, 1),
+    }));
+    expect(mockSendMessage).toHaveBeenCalledWith(FROM, expect.stringContaining('applied'));
+  });
+
+  it('invalid PROMO code shows error', async () => {
+    mockGetSession.mockResolvedValue(confirmingSession);
+    mockValidatePromoCode.mockResolvedValue({ valid: false, error: 'This promo code has expired.' });
+
+    await request(app).post('/webhook').send(textMessage('PROMO EXPIRED'));
+
+    expect(mockSendMessage).toHaveBeenCalledWith(FROM, expect.stringContaining('expired'));
+    expect(mockSetSession).not.toHaveBeenCalled();
+  });
+
+  it('YES with promo code increments usage and shows discount', async () => {
+    const sessionWithPromo = {
+      ...confirmingSession,
+      promoCode: 'SAVE10',
+      discountAmount: 1.00,
+      total: 8.99,
+    };
+    mockGetSession.mockResolvedValue(sessionWithPromo);
+    mockCreateOrder.mockResolvedValue({ id: 42, totalPrice: 8.99 });
+
+    await request(app).post('/webhook').send(textMessage('YES'));
+
+    expect(mockIncrementPromoUsage).toHaveBeenCalledWith('SAVE10');
+    expect(mockSendMessage).toHaveBeenCalledWith(FROM, expect.stringContaining('SAVE10'));
   });
 });
 

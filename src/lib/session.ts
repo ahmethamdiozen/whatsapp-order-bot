@@ -9,6 +9,8 @@ export interface OrderSession {
     menuItemId: number;
   }[];
   total: number;
+  discountAmount?: number;
+  promoCode?: string;
   status: 'selecting_location' | 'browsing_menu' | 'awaiting_confirmation' | 'post_order' | 'confirmed' | 'cancelled';
 }
 

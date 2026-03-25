@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { updateOrderStatus } from '../order/order.service';
 import { sendMessage } from '../bot/messenger';
 import { prisma } from '../lib/prisma';
+import { getAllPromoCodes, createPromoCode, togglePromoCode, deletePromoCode } from '../promo/promo.service';
 
 export const adminRouter = Router();
 
@@ -117,6 +118,32 @@ adminRouter.patch('/menu-items/:id/availability', async (req: Request, res: Resp
     data: { isAvailable },
   });
   res.json(item);
+});
+
+// ─── Promo Codes ─────────────────────────────────────────────────────────────
+
+adminRouter.get('/promo-codes', async (_req: Request, res: Response) => {
+  res.json(await getAllPromoCodes());
+});
+
+adminRouter.post('/promo-codes', async (req: Request, res: Response) => {
+  const { code, discountPercent, expiresAt, usageLimit } = req.body;
+  if (!code || !discountPercent) {
+    return res.status(400).json({ error: 'code and discountPercent are required' });
+  }
+  const promo = await createPromoCode({ code, discountPercent: parseInt(discountPercent), expiresAt, usageLimit: usageLimit ? parseInt(usageLimit) : undefined });
+  res.status(201).json(promo);
+});
+
+adminRouter.patch('/promo-codes/:code/toggle', async (req: Request, res: Response) => {
+  const { isActive } = req.body as { isActive: boolean };
+  const promo = await togglePromoCode(req.params.code as string, isActive);
+  res.json(promo);
+});
+
+adminRouter.delete('/promo-codes/:code', async (req: Request, res: Response) => {
+  await deletePromoCode(req.params.code as string);
+  res.sendStatus(204);
 });
 
 // ─── Stats ────────────────────────────────────────────────────────────────────

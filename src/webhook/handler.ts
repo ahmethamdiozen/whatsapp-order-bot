@@ -5,6 +5,7 @@ import { findMenuItemById, getMenuGroupedByCategory, getAllLocations } from '../
 import { getSession, setSession, clearSession, OrderSession } from '../lib/session';
 import { createOrder, getOrdersByPhone } from '../order/order.service';
 import { createPaymentLink } from '../payment/payment.service';
+import { validatePromoCode, incrementPromoUsage } from '../promo/promo.service';
 
 export const webhookRouter = Router();
 
@@ -245,11 +246,15 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
       // Handle order confirmation
       if (session?.status === 'awaiting_confirmation') {
         if (upper === 'YES') {
+          if (session.promoCode) await incrementPromoUsage(session.promoCode);
           const order = await createOrder(from, session);
           await setSession(from, { status: 'post_order', items: [], total: 0 });
+          const discountLine = session.discountAmount
+            ? `\nDiscount: -$${session.discountAmount.toFixed(2)} (${session.promoCode})`
+            : '';
           await sendMessage(
             from,
-            `🎉 Your order has been confirmed!\n\nOrder #${order.id}\nTotal: $${order.totalPrice.toFixed(2)}\n\nYour order is being prepared. Thank you!`
+            `🎉 Your order has been confirmed!\n\nOrder #${order.id}${discountLine}\nTotal: $${order.totalPrice.toFixed(2)}\n\nYour order is being prepared. Thank you!`
           );
           const paymentUrl = await createPaymentLink(order.id, order.totalPrice);
           await sendMessage(from, `💳 Please complete your payment:\n${paymentUrl}`);
@@ -258,8 +263,19 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
           await setSession(from, { ...session, status: 'browsing_menu' });
           await sendMessage(from, '↩️ No problem! Going back to your cart.');
           await showMenu(from, session.locationId!, { ...session, status: 'browsing_menu' });
+        } else if (upper.startsWith('PROMO ')) {
+          const code = text.slice(6).trim();
+          const result = await validatePromoCode(code);
+          if (!result.valid) {
+            await sendMessage(from, `❌ ${result.error}`);
+          } else {
+            const discount = Math.round(session.total * result.discountPercent! / 100 * 100) / 100;
+            const newTotal = Math.max(0, Math.round((session.total - discount) * 100) / 100);
+            await setSession(from, { ...session, promoCode: code.toUpperCase(), discountAmount: discount, total: newTotal });
+            await sendMessage(from, `✅ Promo code *${code.toUpperCase()}* applied! You saved $${discount.toFixed(2)}.\n\nNew total: *$${newTotal.toFixed(2)}*\n\nType *YES* to confirm or *BACK* to return to menu.`);
+          }
         } else {
-          await sendMessage(from, 'Please type *YES* to confirm or *BACK* to return to menu.');
+          await sendMessage(from, 'Please type *YES* to confirm, *BACK* to return to menu, or *PROMO [code]* to apply a discount.');
         }
 
         return res.sendStatus(200);

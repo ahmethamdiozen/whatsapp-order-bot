@@ -11,6 +11,8 @@ export async function createOrder(phone: string, session: OrderSession) {
       customerPhone: phone,
       locationId: session.locationId,
       totalPrice: session.total,
+      discountAmount: session.discountAmount ?? 0,
+      promoCode: session.promoCode ?? null,
       status: 'CONFIRMED',
       items: {
         create: session.items.map(item => ({

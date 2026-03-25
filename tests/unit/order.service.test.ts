@@ -40,6 +40,8 @@ describe('Order Service', () => {
           customerPhone: '+905001234567',
           locationId: 1,
           totalPrice: 15.97,
+          discountAmount: 0,
+          promoCode: null,
           status: 'CONFIRMED',
           items: {
             create: [
