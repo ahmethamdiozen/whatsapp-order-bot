@@ -45,8 +45,8 @@ describe('Order Service', () => {
           status: 'CONFIRMED',
           items: {
             create: [
-              { quantity: 1, price: 9.99, menuItemId: 1 },
-              { quantity: 2, price: 2.99, menuItemId: 3 },
+              { quantity: 1, price: 9.99, menuItemId: 1, notes: null },
+              { quantity: 2, price: 2.99, menuItemId: 3, notes: null },
             ],
           },
         },

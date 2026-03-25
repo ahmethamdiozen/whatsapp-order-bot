@@ -35,11 +35,14 @@ async function showMenu(to: string, locationId: number, session: OrderSession) {
   }));
 
   const cartSummary = session.items.length > 0
-    ? `\n\n🛒 *Cart:*\n${session.items.map(i => `• ${i.quantity}x ${i.name} — $${(i.price * i.quantity).toFixed(2)}`).join('\n')}\n*Total: $${session.total.toFixed(2)}*`
+    ? `\n\n🛒 *Cart:*\n${session.items.map(i => {
+        const noteLine = i.notes ? ` _(${i.notes})_` : '';
+        return `• ${i.quantity}x ${i.name} — $${(i.price * i.quantity).toFixed(2)}${noteLine}`;
+      }).join('\n')}\n*Total: $${session.total.toFixed(2)}*`
     : '\n\n🛒 Your cart is empty.';
 
   const hint = session.items.length > 0
-    ? '\n\nUse the buttons below or type *REMOVE [item]* to remove an item.'
+    ? '\n\nUse the buttons below, type *REMOVE [item]* to remove, or *NOTE [item]: [text]* for special instructions.'
     : '\n\nSelect items from the menu to add them to your cart.';
 
   await sendInteractiveList(
@@ -56,10 +59,13 @@ async function getCartMessage(session: OrderSession): Promise<string> {
   if (session.items.length === 0) return '🛒 Your cart is empty.';
 
   const itemList = session.items
-    .map(i => `• ${i.quantity}x ${i.name} — $${(i.price * i.quantity).toFixed(2)}`)
+    .map(i => {
+      const noteLine = i.notes ? ` _(${i.notes})_` : '';
+      return `• ${i.quantity}x ${i.name} — $${(i.price * i.quantity).toFixed(2)}${noteLine}`;
+    })
     .join('\n');
 
-  return `🛒 *Your Cart:*\n\n${itemList}\n\n*Total: $${session.total.toFixed(2)}*\n\nType *REMOVE [item]* to remove an item.`;
+  return `🛒 *Your Cart:*\n\n${itemList}\n\n*Total: $${session.total.toFixed(2)}*\n\nType *REMOVE [item]* to remove an item or *NOTE [item]: [text]* to add special instructions.`;
 }
 
 async function startLocationSelection(from: string) {
@@ -99,7 +105,10 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
             } else {
               await setSession(from, { ...session!, status: 'awaiting_confirmation' });
               const itemList = session!.items
-                .map(i => `• ${i.quantity}x ${i.name} — $${(i.price * i.quantity).toFixed(2)}`)
+                .map(i => {
+                  const noteLine = i.notes ? `\n  📝 ${i.notes}` : '';
+                  return `• ${i.quantity}x ${i.name} — $${(i.price * i.quantity).toFixed(2)}${noteLine}`;
+                })
                 .join('\n');
               await sendMessage(
                 from,
@@ -335,6 +344,36 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
           return res.sendStatus(200);
         }
 
+        if (upper.startsWith('NOTE ')) {
+          // Format: NOTE [item name]: [note text]
+          const noteBody = text.slice(5).trim();
+          const colonIndex = noteBody.indexOf(':');
+          if (colonIndex === -1) {
+            await sendMessage(from, '❌ Format: *NOTE [item name]: [your note]*\nExample: NOTE Burger: no onions');
+            return res.sendStatus(200);
+          }
+          const itemName = noteBody.slice(0, colonIndex).trim();
+          const noteText = noteBody.slice(colonIndex + 1).trim();
+
+          const existingItem = session.items.find(i =>
+            i.name.toLowerCase().includes(itemName.toLowerCase())
+          );
+
+          if (!existingItem) {
+            await sendMessage(from, `❌ *${itemName}* not found in your cart.`);
+            await sendMessage(from, await getCartMessage(session));
+            return res.sendStatus(200);
+          }
+
+          const updatedItems = session.items.map(i =>
+            i.menuItemId === existingItem.menuItemId ? { ...i, notes: noteText } : i
+          );
+          const updatedSession = { ...session, items: updatedItems };
+          await setSession(from, updatedSession);
+          await sendMessage(from, `📝 Note added to *${existingItem.name}*: "${noteText}"`);
+          return res.sendStatus(200);
+        }
+
         if (upper === 'CHECKOUT' || upper === 'ORDER') {
           if (session.items.length === 0) {
             await sendMessage(from, '🛒 Your cart is empty. Please select items from the menu first.');
@@ -345,7 +384,10 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
           await setSession(from, { ...session, status: 'awaiting_confirmation' });
 
           const itemList = session.items
-            .map(i => `• ${i.quantity}x ${i.name} — $${(i.price * i.quantity).toFixed(2)}`)
+            .map(i => {
+              const noteLine = i.notes ? `\n  📝 ${i.notes}` : '';
+              return `• ${i.quantity}x ${i.name} — $${(i.price * i.quantity).toFixed(2)}${noteLine}`;
+            })
             .join('\n');
 
           await sendMessage(

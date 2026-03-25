@@ -19,6 +19,7 @@ export async function createOrder(phone: string, session: OrderSession) {
           quantity: item.quantity,
           price: item.price,
           menuItemId: item.menuItemId,
+          notes: item.notes ?? null,
         })),
       },
     },

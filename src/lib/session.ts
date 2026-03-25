@@ -7,6 +7,7 @@ export interface OrderSession {
     quantity: number;
     price: number;
     menuItemId: number;
+    notes?: string;
   }[];
   total: number;
   discountAmount?: number;
