@@ -116,6 +116,31 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
           // Post-order buttons
           } else if (buttonId === 'post_new_order') {
             await startLocationSelection(from);
+          } else if (buttonId === 'post_reorder') {
+            const orders = await getOrdersByPhone(from);
+            if (orders.length === 0) {
+              await sendMessage(from, '📦 No previous orders to reorder.');
+              await sendPostOrderActions(from);
+            } else {
+              const lastOrder = orders[0];
+              const items = lastOrder.items.map(i => ({
+                name: i.menuItem.name,
+                quantity: i.quantity,
+                price: i.price,
+                menuItemId: i.menuItemId,
+              }));
+              const total = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+              const reorderSession: OrderSession = {
+                locationId: lastOrder.locationId,
+                items,
+                total,
+                status: 'browsing_menu',
+              };
+              await setSession(from, reorderSession);
+              const itemList = items.map(i => `• ${i.quantity}x ${i.name}`).join('\n');
+              await sendMessage(from, `🔄 *Last order loaded!*\n📍 ${lastOrder.location.name}\n\n${itemList}\n\n*Total: $${total.toFixed(2)}*`);
+              await showMenu(from, lastOrder.locationId, reorderSession);
+            }
           } else if (buttonId === 'post_my_orders') {
             const orders = await getOrdersByPhone(from);
 

@@ -448,4 +448,45 @@ describe('POST /webhook — post_order', () => {
 
     expect(mockSendMessage).toHaveBeenCalledWith(FROM, expect.stringContaining('no previous orders'));
   });
+
+  it('Reorder button loads last order into cart and shows menu', async () => {
+    mockGetSession.mockResolvedValue(postOrderSession);
+    mockGetOrdersByPhone.mockResolvedValue([
+      {
+        id: 1,
+        locationId: 1,
+        status: 'DELIVERED',
+        totalPrice: 12.98,
+        createdAt: new Date('2026-03-01T10:00:00Z'),
+        location: { name: 'Downtown' },
+        items: [
+          { quantity: 1, price: 9.99, menuItemId: 1, menuItem: { name: 'Burger' } },
+          { quantity: 1, price: 2.99, menuItemId: 2, menuItem: { name: 'Coke' } },
+        ],
+      },
+    ]);
+
+    await request(app).post('/webhook').send(buttonMessage('post_reorder'));
+
+    expect(mockSetSession).toHaveBeenCalledWith(FROM, expect.objectContaining({
+      locationId: 1,
+      status: 'browsing_menu',
+      items: expect.arrayContaining([
+        expect.objectContaining({ name: 'Burger', quantity: 1 }),
+        expect.objectContaining({ name: 'Coke', quantity: 1 }),
+      ]),
+    }));
+    expect(mockSendMessage).toHaveBeenCalledWith(FROM, expect.stringContaining('Last order loaded'));
+    expect(mockSendInteractiveList).toHaveBeenCalled();
+  });
+
+  it('Reorder button shows message when no previous orders', async () => {
+    mockGetSession.mockResolvedValue(postOrderSession);
+    mockGetOrdersByPhone.mockResolvedValue([]);
+
+    await request(app).post('/webhook').send(buttonMessage('post_reorder'));
+
+    expect(mockSendMessage).toHaveBeenCalledWith(FROM, expect.stringContaining('No previous orders'));
+    expect(mockSendPostOrderActions).toHaveBeenCalledWith(FROM);
+  });
 });

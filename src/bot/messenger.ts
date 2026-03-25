@@ -113,6 +113,7 @@ export async function sendPostOrderActions(to: string): Promise<void> {
         action: {
           buttons: [
             { type: 'reply', reply: { id: 'post_new_order', title: '🍔 New Order' } },
+            { type: 'reply', reply: { id: 'post_reorder', title: '🔄 Reorder' } },
             { type: 'reply', reply: { id: 'post_my_orders', title: '📦 My Orders' } },
           ],
         },
