@@ -1,9 +1,11 @@
-import express from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import { webhookRouter } from './webhook/handler';
 import { paymentRouter } from './payment/payment.router';
 import { adminRouter } from './admin/admin.router';
+import { logger } from './lib/logger';
+import { captureException } from './lib/sentry';
 
 export const app = express();
 
@@ -28,3 +30,10 @@ app.use(express.json());
 app.use('/webhook', webhookLimiter, webhookRouter);
 app.use('/payment', paymentRouter);
 app.use('/admin', adminRouter);
+
+// Global error handler
+app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
+  logger.error(err.message, { stack: err.stack, path: req.path, method: req.method });
+  captureException(err, { path: req.path, method: req.method });
+  res.status(500).json({ error: 'Internal server error' });
+});

@@ -1,0 +1,20 @@
+import * as Sentry from '@sentry/node';
+
+export function initSentry() {
+  if (!process.env.SENTRY_DSN) return;
+
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.NODE_ENV ?? 'development',
+    tracesSampleRate: 0.2,
+  });
+}
+
+export function captureException(err: unknown, context?: Record<string, unknown>) {
+  if (process.env.SENTRY_DSN) {
+    Sentry.withScope((scope) => {
+      if (context) scope.setExtras(context);
+      Sentry.captureException(err);
+    });
+  }
+}

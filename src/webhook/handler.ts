@@ -1,4 +1,6 @@
 import { Router, Request, Response } from 'express';
+import { logger } from '../lib/logger';
+import { captureException } from '../lib/sentry';
 import { parseOrder } from '../bot/ai';
 import { sendMessage, sendInteractiveList, sendQuickActions, sendPostOrderActions } from '../bot/messenger';
 import { findMenuItemById, getMenuGroupedByCategory, getAllLocations } from '../menu/menu.service';
@@ -81,6 +83,7 @@ async function startLocationSelection(from: string) {
 webhookRouter.post('/', async (req: Request, res: Response) => {
   const body = req.body;
 
+  try {
   if (body.object === 'whatsapp_business_account') {
     const entry = body.entry?.[0];
     const changes = entry?.changes?.[0];
@@ -223,7 +226,7 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
 
       const text = message.text?.body?.trim() ?? '';
       const upper = text.toUpperCase();
-      console.log(`Message received - From: ${from}, Text: ${text}`);
+      logger.info('Message received', { from, text });
 
       // Handle location selection
       if (session?.status === 'selecting_location') {
@@ -417,4 +420,10 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
   }
 
   res.sendStatus(200);
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Webhook handler error', { error: error.message, stack: error.stack });
+    captureException(error);
+    res.sendStatus(500);
+  }
 });
