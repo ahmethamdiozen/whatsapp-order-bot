@@ -110,15 +110,36 @@ describe('GET /webhook — verification', () => {
 // ─── New User ────────────────────────────────────────────────────────────────
 
 describe('POST /webhook — new user (no session)', () => {
-  it('sends welcome message and shows location selection', async () => {
+  it('shows language selection prompt', async () => {
     mockGetSession.mockResolvedValue(null);
 
     const res = await request(app).post('/webhook').send(textMessage('hello'));
 
     expect(res.status).toBe(200);
-    expect(mockSendMessage).toHaveBeenCalledWith(FROM, expect.stringContaining('Welcome'));
-    expect(mockSendMessage).toHaveBeenCalledWith(FROM, expect.stringContaining('Downtown'));
-    expect(mockSetSession).toHaveBeenCalledWith(FROM, expect.objectContaining({ status: 'selecting_location' }));
+    expect(mockSetSession).toHaveBeenCalledWith(FROM, expect.objectContaining({ status: 'selecting_language' }));
+    expect(mockSendMessage).toHaveBeenCalledWith(FROM, expect.stringContaining('English'));
+  });
+
+  it('selects English and proceeds to location selection', async () => {
+    mockGetSession.mockResolvedValue(null);
+
+    await request(app).post('/webhook').send(textMessage('1'));
+
+    expect(mockSetSession).toHaveBeenCalledWith(FROM, expect.objectContaining({
+      status: 'selecting_location',
+      language: 'en',
+    }));
+  });
+
+  it('selects Turkish and proceeds to location selection', async () => {
+    mockGetSession.mockResolvedValue(null);
+
+    await request(app).post('/webhook').send(textMessage('2'));
+
+    expect(mockSetSession).toHaveBeenCalledWith(FROM, expect.objectContaining({
+      status: 'selecting_location',
+      language: 'tr',
+    }));
   });
 });
 
@@ -146,7 +167,7 @@ describe('POST /webhook — selecting_location', () => {
     const res = await request(app).post('/webhook').send(textMessage('9'));
 
     expect(res.status).toBe(200);
-    expect(mockSendMessage).toHaveBeenCalledWith(FROM, expect.stringContaining('valid number'));
+    expect(mockSendMessage).toHaveBeenCalledWith(FROM, expect.stringContaining('1, 2'));
     expect(mockSetSession).not.toHaveBeenCalled();
   });
 
@@ -156,7 +177,7 @@ describe('POST /webhook — selecting_location', () => {
     const res = await request(app).post('/webhook').send(textMessage('downtown'));
 
     expect(res.status).toBe(200);
-    expect(mockSendMessage).toHaveBeenCalledWith(FROM, expect.stringContaining('valid number'));
+    expect(mockSendMessage).toHaveBeenCalledWith(FROM, expect.stringContaining('1, 2'));
   });
 });
 
@@ -373,8 +394,8 @@ describe('POST /webhook — awaiting_confirmation', () => {
     expect(mockCreateOrder).toHaveBeenCalledWith(FROM, confirmingSession);
     expect(mockSetSession).toHaveBeenCalledWith(FROM, expect.objectContaining({ status: 'post_order' }));
     expect(mockCreatePaymentLink).toHaveBeenCalledWith(42, 9.99);
-    expect(mockSendMessage).toHaveBeenCalledWith(FROM, expect.stringContaining('payment'));
-    expect(mockSendPostOrderActions).toHaveBeenCalledWith(FROM);
+    expect(mockSendMessage).toHaveBeenCalledWith(FROM, expect.stringContaining('checkout.stripe.com'));
+    expect(mockSendPostOrderActions).toHaveBeenCalledWith(FROM, expect.any(Object));
   });
 
   it('NO returns to browsing menu', async () => {
@@ -455,7 +476,7 @@ describe('POST /webhook — post_order', () => {
 
     await request(app).post('/webhook').send(textMessage('thanks'));
 
-    expect(mockSendPostOrderActions).toHaveBeenCalledWith(FROM);
+    expect(mockSendPostOrderActions).toHaveBeenCalledWith(FROM, expect.any(Object));
   });
 
   it('New Order button starts location selection', async () => {
@@ -484,7 +505,7 @@ describe('POST /webhook — post_order', () => {
 
     expect(mockGetOrdersByPhone).toHaveBeenCalledWith(FROM);
     expect(mockSendMessage).toHaveBeenCalledWith(FROM, expect.stringContaining('Order #1'));
-    expect(mockSendPostOrderActions).toHaveBeenCalledWith(FROM);
+    expect(mockSendPostOrderActions).toHaveBeenCalledWith(FROM, expect.any(Object));
   });
 
   it('My Orders button shows message when no orders', async () => {
@@ -534,6 +555,6 @@ describe('POST /webhook — post_order', () => {
     await request(app).post('/webhook').send(buttonMessage('post_reorder'));
 
     expect(mockSendMessage).toHaveBeenCalledWith(FROM, expect.stringContaining('No previous orders'));
-    expect(mockSendPostOrderActions).toHaveBeenCalledWith(FROM);
+    expect(mockSendPostOrderActions).toHaveBeenCalledWith(FROM, expect.any(Object));
   });
 });

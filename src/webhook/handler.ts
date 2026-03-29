@@ -8,6 +8,7 @@ import { getSession, setSession, clearSession, OrderSession } from '../lib/sessi
 import { createOrder, getOrdersByPhone } from '../order/order.service';
 import { createPaymentLink } from '../payment/payment.service';
 import { validatePromoCode, incrementPromoUsage } from '../promo/promo.service';
+import { t, Language } from '../lib/i18n';
 
 export const webhookRouter = Router();
 
@@ -17,7 +18,6 @@ webhookRouter.get('/', (req: Request, res: Response) => {
   const challenge = req.query['hub.challenge'];
 
   if (mode === 'subscribe' && token === process.env.VERIFY_TOKEN) {
-    console.log('Webhook verified!');
     res.status(200).send(challenge);
   } else {
     res.sendStatus(403);
@@ -25,6 +25,8 @@ webhookRouter.get('/', (req: Request, res: Response) => {
 });
 
 async function showMenu(to: string, locationId: number, session: OrderSession) {
+  const lang = session.language ?? 'en';
+  const tr = t(lang);
   const grouped = await getMenuGroupedByCategory(locationId);
 
   const sections = Object.entries(grouped).map(([category, items]) => ({
@@ -37,28 +39,36 @@ async function showMenu(to: string, locationId: number, session: OrderSession) {
   }));
 
   const cartSummary = session.items.length > 0
-    ? `\n\n🛒 *Cart:*\n${session.items.map(i => {
+    ? `\n\n${tr.cartLabel}\n${session.items.map(i => {
         const noteLine = i.notes ? ` _(${i.notes})_` : '';
         return `• ${i.quantity}x ${i.name} — $${(i.price * i.quantity).toFixed(2)}${noteLine}`;
-      }).join('\n')}\n*Total: $${session.total.toFixed(2)}*`
-    : '\n\n🛒 Your cart is empty.';
+      }).join('\n')}\n${tr.orderTotal(session.total)}`
+    : `\n\n${tr.cartEmptyLabel}`;
 
   const hint = session.items.length > 0
-    ? '\n\nUse the buttons below, type *REMOVE [item]* to remove, or *NOTE [item]: [text]* for special instructions.'
-    : '\n\nSelect items from the menu to add them to your cart.';
+    ? `\n\n${tr.removeHint}`
+    : '';
 
   await sendInteractiveList(
     to,
-    `Here\'s our menu! Tap an item to add it to your cart. Select it again to add one more.${cartSummary}${hint}`,
-    'View Menu',
+    `${lang === 'tr' ? 'Menümüz! Ürün eklemek için seçin.' : 'Our menu! Tap an item to add it to your cart.'}${cartSummary}${hint}`,
+    lang === 'tr' ? 'Menüyü Gör' : 'View Menu',
     sections,
   );
 
-  await sendQuickActions(to, session.items.length > 0);
+  await sendQuickActions(to, session.items.length > 0, {
+    body: lang === 'tr' ? 'Ne yapmak istersiniz?' : 'What would you like to do?',
+    checkout: lang === 'tr' ? '✅ Sipariş Ver' : '✅ Checkout',
+    clearCart: lang === 'tr' ? '🗑️ Sepeti Temizle' : '🗑️ Clear Cart',
+    menu: lang === 'tr' ? '📋 Menü' : '📋 Menu',
+  });
 }
 
 async function getCartMessage(session: OrderSession): Promise<string> {
-  if (session.items.length === 0) return '🛒 Your cart is empty.';
+  const lang = session.language ?? 'en';
+  const tr = t(lang);
+
+  if (session.items.length === 0) return tr.cartEmptyLabel;
 
   const itemList = session.items
     .map(i => {
@@ -67,17 +77,41 @@ async function getCartMessage(session: OrderSession): Promise<string> {
     })
     .join('\n');
 
-  return `🛒 *Your Cart:*\n\n${itemList}\n\n*Total: $${session.total.toFixed(2)}*\n\nType *REMOVE [item]* to remove an item or *NOTE [item]: [text]* to add special instructions.`;
+  return `${tr.cartLabel}\n\n${itemList}\n\n${tr.orderTotal(session.total)}\n\n${tr.removeHint}`;
 }
 
-async function startLocationSelection(from: string) {
+async function startLocationSelection(from: string, lang: Language) {
+  const tr = t(lang);
   const locations = await getAllLocations();
   const locationList = locations
     .map((l, i) => `${i + 1}. ${l.name} — ${l.address}`)
     .join('\n');
 
-  await setSession(from, { status: 'selecting_location', items: [], total: 0 });
-  await sendMessage(from, `Please select a branch by entering its number:\n\n${locationList}`);
+  await setSession(from, { language: lang, status: 'selecting_location', items: [], total: 0 });
+  await sendMessage(from, `${tr.selectLocation}\n\n${locationList}`);
+}
+
+function buildOrderSummary(session: OrderSession): string {
+  const lang = session.language ?? 'en';
+  const tr = t(lang);
+
+  const itemList = session.items
+    .map(i => {
+      const noteLine = i.notes ? `\n  📝 ${i.notes}` : '';
+      return `• ${i.quantity}x ${i.name} — $${(i.price * i.quantity).toFixed(2)}${noteLine}`;
+    })
+    .join('\n');
+
+  return `${tr.orderSummaryHeader}\n\n${itemList}\n\n${tr.orderTotal(session.total)}\n\n${tr.confirmPrompt}`;
+}
+
+function postOrderLabels(lang: Language) {
+  return {
+    body: lang === 'tr' ? 'Ne yapmak istersiniz?' : 'What would you like to do next?',
+    newOrder: lang === 'tr' ? '🍔 Yeni Sipariş' : '🍔 New Order',
+    reorder: lang === 'tr' ? '🔄 Tekrarla' : '🔄 Reorder',
+    myOrders: lang === 'tr' ? '📦 Siparişlerim' : '📦 My Orders',
+  };
 }
 
 webhookRouter.post('/', async (req: Request, res: Response) => {
@@ -92,6 +126,8 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
     if (message) {
       const from = message.from;
       const session = await getSession(from);
+      const lang: Language = session?.language ?? 'en';
+      const tr = t(lang);
 
       // Handle interactive messages (button replies and list replies)
       if (message.type === 'interactive') {
@@ -103,37 +139,28 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
           // Quick action buttons (browsing menu)
           if (buttonId === 'action_checkout') {
             if (!session?.items.length) {
-              await sendMessage(from, '🛒 Your cart is empty. Please select items first.');
+              await sendMessage(from, tr.cartEmpty);
               await showMenu(from, session!.locationId!, session!);
             } else {
               await setSession(from, { ...session!, status: 'awaiting_confirmation' });
-              const itemList = session!.items
-                .map(i => {
-                  const noteLine = i.notes ? `\n  📝 ${i.notes}` : '';
-                  return `• ${i.quantity}x ${i.name} — $${(i.price * i.quantity).toFixed(2)}${noteLine}`;
-                })
-                .join('\n');
-              await sendMessage(
-                from,
-                `✅ *Order Summary:*\n\n${itemList}\n\n*Total: $${session!.total.toFixed(2)}*\n\nType *YES* to confirm or *BACK* to return to menu.`
-              );
+              await sendMessage(from, buildOrderSummary(session!));
             }
           } else if (buttonId === 'action_clear') {
             const clearedSession = { ...session!, items: [], total: 0 };
             await setSession(from, clearedSession);
-            await sendMessage(from, '🗑️ Cart cleared!');
+            await sendMessage(from, tr.cartCleared);
             await showMenu(from, session!.locationId!, clearedSession);
           } else if (buttonId === 'action_menu') {
             await showMenu(from, session!.locationId!, session!);
 
           // Post-order buttons
           } else if (buttonId === 'post_new_order') {
-            await startLocationSelection(from);
+            await startLocationSelection(from, lang);
           } else if (buttonId === 'post_reorder') {
             const orders = await getOrdersByPhone(from);
             if (orders.length === 0) {
-              await sendMessage(from, '📦 No previous orders to reorder.');
-              await sendPostOrderActions(from);
+              await sendMessage(from, tr.noReorder);
+              await sendPostOrderActions(from, postOrderLabels(lang));
             } else {
               const lastOrder = orders[0];
               const items = lastOrder.items.map(i => ({
@@ -144,6 +171,7 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
               }));
               const total = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
               const reorderSession: OrderSession = {
+                language: lang,
                 locationId: lastOrder.locationId,
                 items,
                 total,
@@ -151,14 +179,14 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
               };
               await setSession(from, reorderSession);
               const itemList = items.map(i => `• ${i.quantity}x ${i.name}`).join('\n');
-              await sendMessage(from, `🔄 *Last order loaded!*\n📍 ${lastOrder.location.name}\n\n${itemList}\n\n*Total: $${total.toFixed(2)}*`);
+              await sendMessage(from, `🔄 *${lang === 'tr' ? 'Önceki sipariş yüklendi' : 'Last order loaded'}!*\n📍 ${lastOrder.location.name}\n\n${itemList}\n\n${tr.orderTotal(total)}`);
               await showMenu(from, lastOrder.locationId, reorderSession);
             }
           } else if (buttonId === 'post_my_orders') {
             const orders = await getOrdersByPhone(from);
 
             if (orders.length === 0) {
-              await sendMessage(from, '📦 You have no previous orders.');
+              await sendMessage(from, tr.noOrders);
             } else {
               const orderList = orders.map(order => {
                 const itemList = order.items
@@ -166,13 +194,13 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
                   .join('\n');
                 const date = new Date(order.createdAt);
                 const formatted = date.toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
-                return `*Order #${order.id}* — ${order.status}\n🕐 ${formatted}\n${itemList}\nTotal: $${order.totalPrice.toFixed(2)}\n📍 ${order.location.name}`;
+                return `*${lang === 'tr' ? 'Sipariş' : 'Order'} #${order.id}* — ${order.status}\n🕐 ${formatted}\n${itemList}\n${tr.orderTotal(order.totalPrice)}\n📍 ${order.location.name}`;
               }).join('\n\n');
 
-              await sendMessage(from, `📦 *Your Recent Orders:*\n\n${orderList}`);
+              await sendMessage(from, `${tr.ordersHeader}\n\n${orderList}`);
             }
 
-            await sendPostOrderActions(from);
+            await sendPostOrderActions(from, postOrderLabels(lang));
           }
 
           return res.sendStatus(200);
@@ -184,7 +212,7 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
           const menuItem = await findMenuItemById(menuItemId);
 
           if (!menuItem) {
-            await sendMessage(from, '❌ Item not found. Please try again.');
+            await sendMessage(from, `❌ ${lang === 'tr' ? 'Ürün bulunamadı.' : 'Item not found. Please try again.'}`);
             return res.sendStatus(200);
           }
 
@@ -217,7 +245,7 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
           await setSession(from, updatedSession);
 
           const qty = updatedItems.find(i => i.menuItemId === menuItemId)!.quantity;
-          await sendMessage(from, `✅ *${menuItem.name}* added! (${qty}x in cart)`);
+          await sendMessage(from, tr.itemAdded(qty, menuItem.name, newTotal));
           await showMenu(from, session.locationId, updatedSession);
         }
 
@@ -228,8 +256,21 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
       const upper = text.toUpperCase();
       logger.info('Message received', { from, text });
 
+      // Language selection
+      if (!session || session.status === 'selecting_language') {
+        if (text === '1') {
+          await startLocationSelection(from, 'en');
+        } else if (text === '2') {
+          await startLocationSelection(from, 'tr');
+        } else {
+          await setSession(from, { language: 'en', status: 'selecting_language', items: [], total: 0 });
+          await sendMessage(from, t('en').welcome);
+        }
+        return res.sendStatus(200);
+      }
+
       // Handle location selection
-      if (session?.status === 'selecting_location') {
+      if (session.status === 'selecting_location') {
         const locations = await getAllLocations();
         const selectedIndex = parseInt(text) - 1;
 
@@ -237,12 +278,13 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
           const locationList = locations
             .map((l, i) => `${i + 1}. ${l.name} — ${l.address}`)
             .join('\n');
-          await sendMessage(from, `Please enter a valid number:\n\n${locationList}`);
+          await sendMessage(from, `${tr.invalidLocation}\n\n${locationList}`);
           return res.sendStatus(200);
         }
 
         const selectedLocation = locations[selectedIndex];
         const newSession: OrderSession = {
+          language: lang,
           locationId: selectedLocation.id,
           items: [],
           total: 0,
@@ -250,30 +292,27 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
         };
 
         await setSession(from, newSession);
-        await sendMessage(from, `📍 *${selectedLocation.name}* selected!`);
+        await sendMessage(from, tr.locationSelected(selectedLocation.name));
         await showMenu(from, selectedLocation.id, newSession);
         return res.sendStatus(200);
       }
 
       // Handle order confirmation
-      if (session?.status === 'awaiting_confirmation') {
-        if (upper === 'YES') {
+      if (session.status === 'awaiting_confirmation') {
+        if (upper === 'YES' || upper === 'EVET') {
           if (session.promoCode) await incrementPromoUsage(session.promoCode);
           const order = await createOrder(from, session);
-          await setSession(from, { status: 'post_order', items: [], total: 0 });
+          await setSession(from, { language: lang, status: 'post_order', items: [], total: 0 });
           const discountLine = session.discountAmount
-            ? `\nDiscount: -$${session.discountAmount.toFixed(2)} (${session.promoCode})`
+            ? `\n${lang === 'tr' ? 'İndirim' : 'Discount'}: -$${session.discountAmount.toFixed(2)} (${session.promoCode})`
             : '';
-          await sendMessage(
-            from,
-            `🎉 Your order has been confirmed!\n\nOrder #${order.id}${discountLine}\nTotal: $${order.totalPrice.toFixed(2)}\n\nYour order is being prepared. Thank you!`
-          );
+          await sendMessage(from, `${tr.orderConfirmed(order.id)}${discountLine}\n${tr.orderTotal(order.totalPrice)}`);
           const paymentUrl = await createPaymentLink(order.id, order.totalPrice);
-          await sendMessage(from, `💳 Please complete your payment:\n${paymentUrl}`);
-          await sendPostOrderActions(from);
-        } else if (upper === 'NO' || upper === 'BACK') {
+          await sendMessage(from, tr.paymentLink(paymentUrl));
+          await sendPostOrderActions(from, postOrderLabels(lang));
+        } else if (upper === 'NO' || upper === 'BACK' || upper === 'HAYIR' || upper === 'GERİ' || upper === 'GERI') {
           await setSession(from, { ...session, status: 'browsing_menu' });
-          await sendMessage(from, '↩️ No problem! Going back to your cart.');
+          await sendMessage(from, lang === 'tr' ? '↩️ Tamam! Sepetinize dönüyoruz.' : '↩️ No problem! Going back to your cart.');
           await showMenu(from, session.locationId!, { ...session, status: 'browsing_menu' });
         } else if (upper.startsWith('PROMO ')) {
           const code = text.slice(6).trim();
@@ -284,49 +323,53 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
             const discount = Math.round(session.total * result.discountPercent! / 100 * 100) / 100;
             const newTotal = Math.max(0, Math.round((session.total - discount) * 100) / 100);
             await setSession(from, { ...session, promoCode: code.toUpperCase(), discountAmount: discount, total: newTotal });
-            await sendMessage(from, `✅ Promo code *${code.toUpperCase()}* applied! You saved $${discount.toFixed(2)}.\n\nNew total: *$${newTotal.toFixed(2)}*\n\nType *YES* to confirm or *BACK* to return to menu.`);
+            await sendMessage(from, tr.promoApplied(code.toUpperCase(), discount, newTotal));
           }
         } else {
-          await sendMessage(from, 'Please type *YES* to confirm, *BACK* to return to menu, or *PROMO [code]* to apply a discount.');
+          const hint = lang === 'tr'
+            ? `*EVET* yazarak onaylayın, *GERİ* ile menüye dönün veya *PROMO [kod]* ile indirim uygulayın.`
+            : `Type *YES* to confirm, *BACK* to return to menu, or *PROMO [code]* to apply a discount.`;
+          await sendMessage(from, hint);
         }
 
         return res.sendStatus(200);
       }
 
       // Handle post-order state (text fallback if buttons not tapped)
-      if (session?.status === 'post_order') {
-        await sendPostOrderActions(from);
+      if (session.status === 'post_order') {
+        await sendPostOrderActions(from, postOrderLabels(lang));
         return res.sendStatus(200);
       }
 
       // Handle commands while browsing menu
-      if (session?.status === 'browsing_menu') {
-        if (upper === 'CART') {
+      if (session.status === 'browsing_menu') {
+        if (upper === 'CART' || upper === 'SEPET') {
           await sendMessage(from, await getCartMessage(session));
           return res.sendStatus(200);
         }
 
-        if (upper === 'MENU') {
+        if (upper === 'MENU' || upper === 'MENÜ' || upper === 'MENU') {
           await showMenu(from, session.locationId!, session);
           return res.sendStatus(200);
         }
 
-        if (upper === 'CLEAR' || upper === 'RESET') {
+        if (upper === 'CLEAR' || upper === 'RESET' || upper === 'TEMİZLE' || upper === 'TEMIZLE') {
           const clearedSession = { ...session, items: [], total: 0 };
           await setSession(from, clearedSession);
-          await sendMessage(from, '🗑️ Cart cleared!');
+          await sendMessage(from, tr.cartCleared);
           await showMenu(from, session.locationId!, clearedSession);
           return res.sendStatus(200);
         }
 
-        if (upper.startsWith('REMOVE ')) {
-          const itemName = text.slice(7).trim();
+        if (upper.startsWith('REMOVE ') || upper.startsWith('KALDIR ')) {
+          const prefix = upper.startsWith('REMOVE ') ? 'REMOVE ' : 'KALDIR ';
+          const itemName = text.slice(prefix.length).trim();
           const existingItem = session.items.find(i =>
             i.name.toLowerCase().includes(itemName.toLowerCase())
           );
 
           if (!existingItem) {
-            await sendMessage(from, `❌ *${itemName}* not found in your cart.`);
+            await sendMessage(from, tr.itemNotFound(itemName));
             await sendMessage(from, await getCartMessage(session));
             return res.sendStatus(200);
           }
@@ -342,17 +385,17 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
           const updatedSession = { ...session, items: updatedItems, total: newTotal };
           await setSession(from, updatedSession);
 
-          await sendMessage(from, `🗑️ Removed one *${existingItem.name}* from cart.`);
+          await sendMessage(from, tr.itemRemoved(existingItem.name));
           await showMenu(from, session.locationId!, updatedSession);
           return res.sendStatus(200);
         }
 
-        if (upper.startsWith('NOTE ')) {
-          // Format: NOTE [item name]: [note text]
-          const noteBody = text.slice(5).trim();
+        if (upper.startsWith('NOTE ') || upper.startsWith('NOT ')) {
+          const prefix = upper.startsWith('NOTE ') ? 'NOTE ' : 'NOT ';
+          const noteBody = text.slice(prefix.length).trim();
           const colonIndex = noteBody.indexOf(':');
           if (colonIndex === -1) {
-            await sendMessage(from, '❌ Format: *NOTE [item name]: [your note]*\nExample: NOTE Burger: no onions');
+            await sendMessage(from, tr.noteFormat);
             return res.sendStatus(200);
           }
           const itemName = noteBody.slice(0, colonIndex).trim();
@@ -363,7 +406,7 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
           );
 
           if (!existingItem) {
-            await sendMessage(from, `❌ *${itemName}* not found in your cart.`);
+            await sendMessage(from, tr.noteItemNotFound(itemName));
             await sendMessage(from, await getCartMessage(session));
             return res.sendStatus(200);
           }
@@ -373,30 +416,19 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
           );
           const updatedSession = { ...session, items: updatedItems };
           await setSession(from, updatedSession);
-          await sendMessage(from, `📝 Note added to *${existingItem.name}*: "${noteText}"`);
+          await sendMessage(from, tr.noteAdded(existingItem.name, noteText));
           return res.sendStatus(200);
         }
 
-        if (upper === 'CHECKOUT' || upper === 'ORDER') {
+        if (upper === 'CHECKOUT' || upper === 'ORDER' || upper === 'SİPARİŞ' || upper === 'SIPARIS') {
           if (session.items.length === 0) {
-            await sendMessage(from, '🛒 Your cart is empty. Please select items from the menu first.');
+            await sendMessage(from, tr.cartEmpty);
             await showMenu(from, session.locationId!, session);
             return res.sendStatus(200);
           }
 
           await setSession(from, { ...session, status: 'awaiting_confirmation' });
-
-          const itemList = session.items
-            .map(i => {
-              const noteLine = i.notes ? `\n  📝 ${i.notes}` : '';
-              return `• ${i.quantity}x ${i.name} — $${(i.price * i.quantity).toFixed(2)}${noteLine}`;
-            })
-            .join('\n');
-
-          await sendMessage(
-            from,
-            `✅ *Order Summary:*\n\n${itemList}\n\n*Total: $${session.total.toFixed(2)}*\n\nType *YES* to confirm or *BACK* to return to menu.`
-          );
+          await sendMessage(from, buildOrderSummary(session));
           return res.sendStatus(200);
         }
 
@@ -404,18 +436,14 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
         const parsed = await parseOrder(text);
         if (parsed.intent === 'cancel') {
           await clearSession(from);
-          await sendMessage(from, '❌ Order cancelled. Send any message to start again.');
+          await sendMessage(from, lang === 'tr' ? '❌ Sipariş iptal edildi. Yeni sipariş için mesaj gönderin.' : '❌ Order cancelled. Send any message to start again.');
           return res.sendStatus(200);
         }
 
-        await sendMessage(from, 'Use the buttons below or type *REMOVE [item]* to remove an item from your cart.');
+        await sendMessage(from, tr.invalidOption);
         await showMenu(from, session.locationId!, session);
         return res.sendStatus(200);
       }
-
-      // New conversation — welcome message
-      await sendMessage(from, '👋 Welcome! Let\'s get your order started.');
-      await startLocationSelection(from);
     }
   }
 

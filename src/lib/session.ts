@@ -1,7 +1,9 @@
 import { redis } from './redis';
+import type { Language } from './i18n';
 
 export interface OrderSession {
   locationId?: number;
+  language?: Language;
   items: {
     name: string;
     quantity: number;
@@ -12,7 +14,7 @@ export interface OrderSession {
   total: number;
   discountAmount?: number;
   promoCode?: string;
-  status: 'selecting_location' | 'browsing_menu' | 'awaiting_confirmation' | 'post_order' | 'confirmed' | 'cancelled';
+  status: 'selecting_language' | 'selecting_location' | 'browsing_menu' | 'awaiting_confirmation' | 'post_order' | 'confirmed' | 'cancelled';
 }
 
 export async function setSession(phone: string, session: OrderSession): Promise<void> {

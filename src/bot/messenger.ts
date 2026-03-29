@@ -59,10 +59,33 @@ export async function sendInteractiveList(
   }
 }
 
-export async function sendQuickActions(to: string, hasItems: boolean): Promise<void> {
+export interface QuickActionLabels {
+  body: string;
+  checkout: string;
+  clearCart: string;
+  menu: string;
+}
+
+export interface PostOrderLabels {
+  body: string;
+  newOrder: string;
+  reorder: string;
+  myOrders: string;
+}
+
+export async function sendQuickActions(
+  to: string,
+  hasItems: boolean,
+  labels: QuickActionLabels = {
+    body: 'What would you like to do?',
+    checkout: '✅ Checkout',
+    clearCart: '🗑️ Clear Cart',
+    menu: '📋 Menu',
+  }
+): Promise<void> {
   const url = `https://graph.facebook.com/v19.0/${process.env.PHONE_NUMBER_ID}/messages`;
 
-  if (!hasItems) return; // Sepet boşken buton gönderme
+  if (!hasItems) return;
 
   const response = await fetch(url, {
     method: 'POST',
@@ -76,12 +99,12 @@ export async function sendQuickActions(to: string, hasItems: boolean): Promise<v
       type: 'interactive',
       interactive: {
         type: 'button',
-        body: { text: 'What would you like to do?' },
+        body: { text: labels.body },
         action: {
           buttons: [
-            { type: 'reply', reply: { id: 'action_checkout', title: '✅ Checkout' } },
-            { type: 'reply', reply: { id: 'action_clear', title: '🗑️ Clear Cart' } },
-            { type: 'reply', reply: { id: 'action_menu', title: '📋 Menu' } },
+            { type: 'reply', reply: { id: 'action_checkout', title: labels.checkout } },
+            { type: 'reply', reply: { id: 'action_clear', title: labels.clearCart } },
+            { type: 'reply', reply: { id: 'action_menu', title: labels.menu } },
           ],
         },
       },
@@ -94,7 +117,15 @@ export async function sendQuickActions(to: string, hasItems: boolean): Promise<v
   }
 }
 
-export async function sendPostOrderActions(to: string): Promise<void> {
+export async function sendPostOrderActions(
+  to: string,
+  labels: PostOrderLabels = {
+    body: 'What would you like to do next?',
+    newOrder: '🍔 New Order',
+    reorder: '🔄 Reorder',
+    myOrders: '📦 My Orders',
+  }
+): Promise<void> {
   const url = `https://graph.facebook.com/v19.0/${process.env.PHONE_NUMBER_ID}/messages`;
 
   const response = await fetch(url, {
@@ -109,12 +140,12 @@ export async function sendPostOrderActions(to: string): Promise<void> {
       type: 'interactive',
       interactive: {
         type: 'button',
-        body: { text: 'What would you like to do next?' },
+        body: { text: labels.body },
         action: {
           buttons: [
-            { type: 'reply', reply: { id: 'post_new_order', title: '🍔 New Order' } },
-            { type: 'reply', reply: { id: 'post_reorder', title: '🔄 Reorder' } },
-            { type: 'reply', reply: { id: 'post_my_orders', title: '📦 My Orders' } },
+            { type: 'reply', reply: { id: 'post_new_order', title: labels.newOrder } },
+            { type: 'reply', reply: { id: 'post_reorder', title: labels.reorder } },
+            { type: 'reply', reply: { id: 'post_my_orders', title: labels.myOrders } },
           ],
         },
       },
