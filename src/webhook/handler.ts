@@ -9,6 +9,8 @@ import { createOrder, getOrdersByPhone } from '../order/order.service';
 import { createPaymentLink } from '../payment/payment.service';
 import { validatePromoCode, incrementPromoUsage } from '../promo/promo.service';
 import { t, Language } from '../lib/i18n';
+import { getPoints, earnPoints, redeemPoints } from '../loyalty/loyalty.service';
+import { prisma } from '../lib/prisma';
 
 export const webhookRouter = Router();
 
@@ -102,7 +104,14 @@ function buildOrderSummary(session: OrderSession): string {
     })
     .join('\n');
 
-  return `${tr.orderSummaryHeader}\n\n${itemList}\n\n${tr.orderTotal(session.total)}\n\n${tr.confirmPrompt}`;
+  const discountLine = session.discountAmount
+    ? `\n${lang === 'tr' ? 'Promo indirimi' : 'Promo discount'}: -$${session.discountAmount.toFixed(2)}`
+    : '';
+  const loyaltyLine = session.loyaltyDiscount
+    ? `\n${lang === 'tr' ? 'Puan indirimi' : 'Points discount'}: -$${session.loyaltyDiscount.toFixed(2)}`
+    : '';
+
+  return `${tr.orderSummaryHeader}\n\n${itemList}${discountLine}${loyaltyLine}\n\n${tr.orderTotal(session.total)}\n\n${tr.confirmPrompt}`;
 }
 
 function postOrderLabels(lang: Language) {
@@ -284,6 +293,7 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
 
         const selectedLocation = locations[selectedIndex];
         const newSession: OrderSession = {
+
           language: lang,
           locationId: selectedLocation.id,
           items: [],
@@ -302,11 +312,21 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
         if (upper === 'YES' || upper === 'EVET') {
           if (session.promoCode) await incrementPromoUsage(session.promoCode);
           const order = await createOrder(from, session);
+
+          // Earn loyalty points on confirmed order
+          const earned = await earnPoints(from, order.totalPrice);
+          const newBalance = await getPoints(from);
+          await prisma.order.update({ where: { id: order.id }, data: { pointsEarned: earned } });
+
           await setSession(from, { language: lang, status: 'post_order', items: [], total: 0 });
           const discountLine = session.discountAmount
             ? `\n${lang === 'tr' ? 'İndirim' : 'Discount'}: -$${session.discountAmount.toFixed(2)} (${session.promoCode})`
             : '';
-          await sendMessage(from, `${tr.orderConfirmed(order.id)}${discountLine}\n${tr.orderTotal(order.totalPrice)}`);
+          const loyaltyLine = session.loyaltyDiscount
+            ? `\n${lang === 'tr' ? 'Puan indirimi' : 'Points discount'}: -$${session.loyaltyDiscount.toFixed(2)}`
+            : '';
+          await sendMessage(from, `${tr.orderConfirmed(order.id)}${discountLine}${loyaltyLine}\n${tr.orderTotal(order.totalPrice)}`);
+          await sendMessage(from, tr.pointsEarned(earned, newBalance));
           const paymentUrl = await createPaymentLink(order.id, order.totalPrice);
           await sendMessage(from, tr.paymentLink(paymentUrl));
           await sendPostOrderActions(from, postOrderLabels(lang));
@@ -343,6 +363,36 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
 
       // Handle commands while browsing menu
       if (session.status === 'browsing_menu') {
+        if (upper === 'POINTS' || upper === 'PUAN') {
+          const pts = await getPoints(from);
+          await sendMessage(from, pts === 0 ? tr.noPoints : tr.pointsBalance(pts));
+          return res.sendStatus(200);
+        }
+
+        if (upper === 'REDEEM' || upper === 'KULLAN') {
+          const pts = await getPoints(from);
+          if (pts < 100) {
+            await sendMessage(from, pts === 0 ? tr.noPoints : tr.notEnoughPoints(pts));
+            return res.sendStatus(200);
+          }
+          const result = await redeemPoints(from);
+          if (!result) {
+            await sendMessage(from, tr.notEnoughPoints(pts));
+            return res.sendStatus(200);
+          }
+          const newTotal = Math.max(0, Math.round((session.total - result.discount) * 100) / 100);
+          const updatedSession = {
+            ...session,
+            loyaltyDiscount: (session.loyaltyDiscount ?? 0) + result.discount,
+            loyaltyPointsUsed: (session.loyaltyPointsUsed ?? 0) + result.pointsUsed,
+            total: newTotal,
+          };
+          await setSession(from, updatedSession);
+          const remaining = await getPoints(from);
+          await sendMessage(from, tr.pointsRedeemed(result.discount, result.pointsUsed, remaining));
+          return res.sendStatus(200);
+        }
+
         if (upper === 'CART' || upper === 'SEPET') {
           await sendMessage(from, await getCartMessage(session));
           return res.sendStatus(200);

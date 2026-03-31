@@ -42,6 +42,15 @@ const messages = {
     newOrderButton: 'New Order',
     myOrdersButton: 'My Orders',
     reorderButton: '🔄 Reorder',
+    pointsBalance: (pts: number) => `⭐ You have *${pts} points*.\n\nType *REDEEM* to use them (100 pts = $5 off).`,
+    pointsEarned: (pts: number, total: number) => `⭐ You earned *${pts} points*! Your new balance: *${total} points*.`,
+    pointsRedeemed: (discount: number, pts: number, newTotal: number) =>
+      `⭐ *${pts} points* redeemed for *$${discount.toFixed(2)} off*!\n${newTotal > 0 ? `Remaining points: ${newTotal}` : 'Points balance: 0'}`,
+    notEnoughPoints: (pts: number) => `❌ You need at least 100 points to redeem. You have *${pts} points*.`,
+    noPoints: '❌ You have no points yet. Place an order to start earning!',
+    pointsHint: (pts: number) => pts >= 100
+      ? `⭐ You have *${pts} points* available. Type *REDEEM* to get $${Math.floor(pts / 100) * 5} off!`
+      : `⭐ You have *${pts} points*. Earn ${100 - pts} more to unlock a $5 discount.`,
   },
   tr: {
     welcome: '👋 Hoş geldiniz! Lütfen dilinizi seçin:\n\n1️⃣ English\n2️⃣ Türkçe',
@@ -84,6 +93,15 @@ const messages = {
     newOrderButton: 'Yeni Sipariş',
     myOrdersButton: 'Siparişlerim',
     reorderButton: '🔄 Tekrarla',
+    pointsBalance: (pts: number) => `⭐ *${pts} puanınız* var.\n\nKullanmak için *KULLAN* yazın (100 puan = 5$ indirim).`,
+    pointsEarned: (pts: number, total: number) => `⭐ *${pts} puan* kazandınız! Toplam bakiyeniz: *${total} puan*.`,
+    pointsRedeemed: (discount: number, pts: number, newTotal: number) =>
+      `⭐ *${pts} puan* kullanıldı, *$${discount.toFixed(2)} indirim* uygulandı!\n${newTotal > 0 ? `Kalan puan: ${newTotal}` : 'Puan bakiyesi: 0'}`,
+    notEnoughPoints: (pts: number) => `❌ Kullanmak için en az 100 puan gerekli. Şu anki bakiyeniz: *${pts} puan*.`,
+    noPoints: '❌ Henüz puanınız yok. Sipariş vererek puan kazanmaya başlayın!',
+    pointsHint: (pts: number) => pts >= 100
+      ? `⭐ *${pts} puanınız* var. *KULLAN* yazarak $${Math.floor(pts / 100) * 5} indirim kazanın!`
+      : `⭐ *${pts} puanınız* var. $5 indirim için ${100 - pts} puan daha kazanmanız gerekiyor.`,
   },
 };
 

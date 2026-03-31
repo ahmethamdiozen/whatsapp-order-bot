@@ -41,6 +41,8 @@ describe('Order Service', () => {
           locationId: 1,
           totalPrice: 15.97,
           discountAmount: 0,
+          pointsEarned: 0,
+          pointsRedeemed: 0,
           promoCode: null,
           status: 'CONFIRMED',
           items: {

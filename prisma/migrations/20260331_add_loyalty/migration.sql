@@ -1,0 +1,11 @@
+CREATE TABLE "LoyaltyAccount" (
+  "phone"       TEXT NOT NULL,
+  "points"      INTEGER NOT NULL DEFAULT 0,
+  "totalEarned" INTEGER NOT NULL DEFAULT 0,
+  "createdAt"   TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt"   TIMESTAMP(3) NOT NULL,
+  CONSTRAINT "LoyaltyAccount_pkey" PRIMARY KEY ("phone")
+);
+
+ALTER TABLE "Order" ADD COLUMN "pointsEarned"   INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "Order" ADD COLUMN "pointsRedeemed" INTEGER NOT NULL DEFAULT 0;

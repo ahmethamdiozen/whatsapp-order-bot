@@ -3,6 +3,7 @@ import { updateOrderStatus } from '../order/order.service';
 import { sendMessage } from '../bot/messenger';
 import { prisma } from '../lib/prisma';
 import { getAllPromoCodes, createPromoCode, togglePromoCode, deletePromoCode } from '../promo/promo.service';
+import { getAllAccounts } from '../loyalty/loyalty.service';
 
 export const adminRouter = Router();
 
@@ -236,4 +237,13 @@ adminRouter.get('/stats', async (_req: Request, res: Response) => {
     })),
     dailyRevenue,
   });
+});
+
+// ─── Loyalty ─────────────────────────────────────────────────────────────────
+
+adminRouter.get('/loyalty', async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const accounts = await getAllAccounts();
+    res.json(accounts);
+  } catch (err) { next(err); }
 });

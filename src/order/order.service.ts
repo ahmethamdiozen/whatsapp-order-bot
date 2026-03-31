@@ -13,6 +13,8 @@ export async function createOrder(phone: string, session: OrderSession) {
       totalPrice: session.total,
       discountAmount: session.discountAmount ?? 0,
       promoCode: session.promoCode ?? null,
+      pointsEarned: 0,   // will be updated after earnPoints()
+      pointsRedeemed: session.loyaltyPointsUsed ?? 0,
       status: 'CONFIRMED',
       items: {
         create: session.items.map(item => ({

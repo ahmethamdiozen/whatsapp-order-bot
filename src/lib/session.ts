@@ -14,6 +14,8 @@ export interface OrderSession {
   total: number;
   discountAmount?: number;
   promoCode?: string;
+  loyaltyDiscount?: number;
+  loyaltyPointsUsed?: number;
   status: 'selecting_language' | 'selecting_location' | 'browsing_menu' | 'awaiting_confirmation' | 'post_order' | 'confirmed' | 'cancelled';
 }
 

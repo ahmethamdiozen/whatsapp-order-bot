@@ -33,6 +33,14 @@ model MenuItem {
   orderItems OrderItem[]
 }
 
+model LoyaltyAccount {
+  phone        String   @id
+  points       Int      @default(0)
+  totalEarned  Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
 model Order {
   id            Int           @id @default(autoincrement())
   customerPhone String
@@ -40,6 +48,8 @@ model Order {
   paymentStatus PaymentStatus @default(UNPAID)
   totalPrice    Float         @default(0)
   discountAmount Float        @default(0)
+  pointsEarned  Int           @default(0)
+  pointsRedeemed Int          @default(0)
   promoCode     String?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt

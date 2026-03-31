@@ -5,7 +5,8 @@ jest.mock('../../src/bot/messenger');
 jest.mock('../../src/bot/ai');
 jest.mock('../../src/payment/payment.service');
 jest.mock('../../src/promo/promo.service');
-jest.mock('../../src/lib/prisma', () => ({ prisma: {} }));
+jest.mock('../../src/loyalty/loyalty.service');
+jest.mock('../../src/lib/prisma', () => ({ prisma: { order: { update: jest.fn() } } }));
 jest.mock('../../src/lib/redis', () => ({ redis: {} }));
 jest.mock('stripe', () => jest.fn().mockImplementation(() => ({})));
 jest.mock('@anthropic-ai/sdk', () => jest.fn().mockImplementation(() => ({})));
@@ -19,6 +20,7 @@ import { sendMessage, sendInteractiveList, sendQuickActions, sendPostOrderAction
 import { parseOrder } from '../../src/bot/ai';
 import { createPaymentLink } from '../../src/payment/payment.service';
 import { validatePromoCode, incrementPromoUsage } from '../../src/promo/promo.service';
+import { earnPoints, getPoints, redeemPoints } from '../../src/loyalty/loyalty.service';
 
 const mockGetSession = getSession as jest.Mock;
 const mockSetSession = setSession as jest.Mock;
@@ -36,6 +38,9 @@ const mockParseOrder = parseOrder as jest.Mock;
 const mockCreatePaymentLink = createPaymentLink as jest.Mock;
 const mockValidatePromoCode = validatePromoCode as jest.Mock;
 const mockIncrementPromoUsage = incrementPromoUsage as jest.Mock;
+const mockEarnPoints = earnPoints as jest.Mock;
+const mockGetPoints = getPoints as jest.Mock;
+const mockRedeemPoints = redeemPoints as jest.Mock;
 
 const FROM = '+905001234567';
 
@@ -82,6 +87,9 @@ beforeEach(() => {
   mockCreatePaymentLink.mockResolvedValue('https://checkout.stripe.com/pay/test');
   mockValidatePromoCode.mockResolvedValue({ valid: false, error: 'Invalid promo code.' });
   mockIncrementPromoUsage.mockResolvedValue(undefined);
+  mockEarnPoints.mockResolvedValue(9);
+  mockGetPoints.mockResolvedValue(9);
+  mockRedeemPoints.mockResolvedValue(null);
 });
 
 // ─── Webhook Verification ────────────────────────────────────────────────────
