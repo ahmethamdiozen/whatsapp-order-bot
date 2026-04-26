@@ -35,6 +35,11 @@ jobs:
     steps:
       - name: Trigger Coolify deploy
         run: |
-          curl -s -X GET "${{ secrets.COOLIFY_WEBHOOK_BACKEND }}" \
-            -H "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN }}" \
-            --fail
+          if [ -z "$WEBHOOK_URL" ] || [ -z "$TOKEN" ]; then
+            echo "Coolify secrets not configured, skipping deploy trigger"
+            exit 0
+          fi
+          curl -s -X GET "$WEBHOOK_URL" -H "Authorization: Bearer $TOKEN" --fail
+        env:
+          WEBHOOK_URL: ${{ secrets.COOLIFY_WEBHOOK_BACKEND }}
+          TOKEN: ${{ secrets.COOLIFY_TOKEN }}
