@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import crypto from 'crypto';
 import { logger } from '../lib/logger';
 import { captureException } from '../lib/sentry';
 import { parseOrder } from '../bot/ai';
@@ -124,6 +125,20 @@ function postOrderLabels(lang: Language) {
 }
 
 webhookRouter.post('/', async (req: Request, res: Response) => {
+  const appSecret = process.env.WHATSAPP_APP_SECRET;
+  if (appSecret) {
+    const sig = req.headers['x-hub-signature-256'] as string | undefined;
+    const rawBody = (req as any).rawBody as Buffer | undefined;
+    if (!sig || !rawBody) {
+      return res.sendStatus(403);
+    }
+    const expected = `sha256=${crypto.createHmac('sha256', appSecret).update(rawBody).digest('hex')}`;
+    if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
+      logger.warn('Invalid WhatsApp webhook signature');
+      return res.sendStatus(403);
+    }
+  }
+
   const body = req.body;
 
   try {

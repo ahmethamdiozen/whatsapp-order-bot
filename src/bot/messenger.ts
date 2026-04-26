@@ -73,6 +73,13 @@ export interface PostOrderLabels {
   myOrders: string;
 }
 
+export interface MessageTransport {
+  sendText(to: string, text: string): Promise<void>;
+  sendInteractiveList(to: string, bodyText: string, buttonLabel: string, sections: { title: string; rows: { id: string; title: string; description?: string }[] }[]): Promise<void>;
+  sendQuickActions(to: string, hasItems: boolean, labels?: QuickActionLabels): Promise<void>;
+  sendPostOrderActions(to: string, labels?: PostOrderLabels): Promise<void>;
+}
+
 export async function sendQuickActions(
   to: string,
   hasItems: boolean,

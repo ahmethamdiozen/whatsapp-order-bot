@@ -1,11 +1,13 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+import { validateEnv } from './lib/env';
 import { app } from './app';
 import { initSentry } from './lib/sentry';
 import { logger } from './lib/logger';
 
 initSentry();
+validateEnv();
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
